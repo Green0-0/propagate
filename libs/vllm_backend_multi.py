@@ -113,7 +113,6 @@ class VLLMBackendMulti(Backend):
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
-                vllm_gpu_fraction=GPU_FRACTION_VLLM_WORKER,
                 bundle_indices=[0],
             )
             self.inference_engines.append(eng)
