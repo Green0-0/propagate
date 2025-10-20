@@ -94,7 +94,7 @@ class VLLMBackendMulti(Backend):
                 num_gpus=GPU_FRACTION_TRAINING_ACTOR,
                 scheduling_strategy=PlacementGroupSchedulingStrategy(
                     placement_group=pg,
-                    placement_group_bundle_index=bidx,
+                    placement_group_bundle_index=0,
                     placement_group_capture_child_tasks=True,
                 ),
             ).remote()
