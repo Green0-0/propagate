@@ -160,7 +160,7 @@ class VLLMBackendTP(backend):
                     batch_texts.append(text_field[0].text)
                 else:
                     batch_texts.append(getattr(out, "text", str(out)))
-                    
+
             g.latest_outputs = batch_texts
 
             restore_tasks = [

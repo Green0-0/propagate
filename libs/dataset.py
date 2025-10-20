@@ -44,7 +44,7 @@ class Dataset:
         """
         n_pairs = len(self.pairs)
         if n_pairs == 0:
-            return [], []
+            return []
 
         start = self.i
         stop = start + self.batch_size
