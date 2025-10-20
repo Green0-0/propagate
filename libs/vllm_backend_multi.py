@@ -1,3 +1,4 @@
+import math
 from typing import Dict, List
 from libs.backend import Backend
 
@@ -13,7 +14,7 @@ from vllm import LLM, SamplingParams
 
 from libs.genome import Genome
 
-class VLLMBackendTP(Backend):
+class VLLMBackendMulti(Backend):
     training_actors: List[ray.actor.ActorHandle]
     llm: ray.actor.ActorHandle
     tokenizer: AutoTokenizer
@@ -43,7 +44,7 @@ class VLLMBackendTP(Backend):
                 self.model.to(self.device)
                 self.model.eval()
                 torch.cuda.synchronize(self.device)
-                
+
                 from vllm.platforms import current_platform
                 self.device_uuid = current_platform.get_device_uuid(0)
 
@@ -68,9 +69,8 @@ class VLLMBackendTP(Backend):
         print("#-- Initializing Backend [VLLMBackendTP] --#")
         print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction Training Actor: {GPU_FRACTION_TRAINING_ACTOR}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
         ray.init(ignore_reinit_error=True)
-        pg = placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}] * NUM_GPUS)
-        ray.get(pg.ready())
-
+        pgs = [placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}]) for _ in range(NUM_GPUS)]
+        ray.get([pg.ready() for pg in pgs])
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.sampler = Sampler
@@ -82,10 +82,13 @@ class VLLMBackendTP(Backend):
         open(self.output_log_file, "w", encoding="utf-8").close()
         open(self.full_output_log_file, "w", encoding="utf-8").close()
 
-        print("#-- Spawning Training Actors --#")
+        print("#-- Spawning Training Actors with vLLM backends --#")
         # Spawn training actors
         self.training_actors = []
+        self.inference_engines = []
+
         for bidx in range(NUM_GPUS):
+            pg = pgs[bidx]
             a = RayTrainingActor.options(
                 num_cpus=2,
                 num_gpus=GPU_FRACTION_TRAINING_ACTOR,
@@ -97,34 +100,34 @@ class VLLMBackendTP(Backend):
             ).remote()
             self.training_actors.append(a)
 
-        print(f"#-- Spawning singular vLLM instance with TP --#")
-        bundle_indices = list(range(NUM_GPUS))
-        self.llm = ray.remote(
-            num_cpus=0,
-            num_gpus=0,
-            scheduling_strategy=PlacementGroupSchedulingStrategy(
-                placement_group=pg,
-                placement_group_capture_child_tasks=True),
-        )(MyLLM).remote(
-            model=model_name,
-            enforce_eager=True,
-            worker_extension_cls="libs.vllm_backend_utils.ColocateWorkerExtension",
-            tensor_parallel_size=max(1, NUM_GPUS),
-            distributed_executor_backend="ray",
-            gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
-            bundle_indices=bundle_indices,
-        )
-
+            eng = ray.remote(
+                num_cpus=0,
+                num_gpus=0,
+                scheduling_strategy=PlacementGroupSchedulingStrategy(
+                    placement_group=pg,
+                    placement_group_capture_child_tasks=True),
+            )(MyLLM).remote(
+                model=model_name,
+                enforce_eager=True,
+                worker_extension_cls="libs.vllm_backend_utils.ColocateWorkerExtension",
+                tensor_parallel_size=1,
+                distributed_executor_backend="ray",
+                gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
+                vllm_gpu_fraction=GPU_FRACTION_VLLM_WORKER,
+                bundle_indices=[0],
+            )
+            self.inference_engines.append(eng)
+        
         print("#-- Verifying Co-location of Training Actors and vLLM Workers --#")
-        training_actor_device_ids = []
-        for idx, a in enumerate(self.training_actors):
-            dev_id = ray.get(a.report_device_id.remote())
-            training_actor_device_ids.append(dev_id)
+        for bidx in range(NUM_GPUS):
+            actor = self.training_actors[bidx]
+            engine = self.inference_engines[bidx]
 
-        ids = ray.get(self.llm.collective_rpc.remote("report_device_id", args=tuple()))
-        inference_device_ids = ids if isinstance(ids, list) else [ids]
-        assert set(training_actor_device_ids) <= set(inference_device_ids), \
-            "Training actors and vLLM workers are NOT co-located!"
+            actor_dev_id = ray.get(actor.report_device_id.remote())
+            engine_dev_ids = ray.get(engine.collective_rpc.remote("report_device_id", args=tuple()))
+
+            assert engine_dev_ids and actor_dev_id in engine_dev_ids, \
+                f"Training actor and vLLM worker on GPU index {bidx} are NOT co-located!"
         
         self._push_weights()
         print("#-- Backend Initialized --#")
@@ -132,9 +135,15 @@ class VLLMBackendTP(Backend):
 
     def _push_weights(self):
         ipc = {}
-        for a in self.training_actors:
-            ipc.update(ray.get(a.get_weight_ipc_handles.remote()))
-        ray.get(self.llm.collective_rpc.remote("update_weights_from_ipc_handles", args=(ipc,)))
+
+        ipc_handles_list = ray.get([a.get_weight_ipc_handles.remote() for a in self.training_actors])
+        for handle_dict in ipc_handles_list:
+            ipc.update(handle_dict)
+
+        tasks = []
+        for eng in self.inference_engines:
+            tasks.append(eng.collective_rpc.remote("update_weights_from_ipc_handles", args=(ipc,)))
+        ray.get(tasks)
         return True
 
     def update(self, genome: Genome):
@@ -162,35 +171,57 @@ class VLLMBackendTP(Backend):
                 s = s + suffix
             prompts.append(s)
 
-        for g in genomes:
+        num_chunks = math.ceil(len(genomes) / len(self.inference_engines))
+        for i in range(num_chunks):
             start_time = time.time()
+
+            chunk = genomes[i * len(self.inference_engines):min((i + 1) * len(self.inference_engines), len(genomes))]
+            current_actors = self.training_actors[:len(chunk)]
+            current_engines = self.inference_engines[:len(chunk)]
+            
             perturb_tasks = [
-                a.perturb.remote(g)
-                for a in self.training_actors
+                a.perturb.remote(chunk[i])
+                for i, a in enumerate(current_actors)
             ]
             ray.get(perturb_tasks)
-            self._push_weights()
 
-            gen = ray.get(self.llm.generate.remote(prompts, self.sampler, use_tqdm=self.use_tqdm))
-            batch_texts = []
-            for out in gen:
-                text_field = getattr(out, "outputs", None)
-                if text_field and len(text_field) > 0 and hasattr(text_field[0], "text"):
-                    batch_texts.append(text_field[0].text)
-                    with open(self.full_output_log_file, "a", encoding="utf-8") as f:
-                        f.write(text_field[0].text + "\n")
-                else:
-                    batch_texts.append(getattr(out, "text", str(out)))
+            ipc_tasks = [actor.get_weight_ipc_handles.remote() for actor in current_actors]
+            ipc_handles_list = ray.get(ipc_tasks)
 
-            g.latest_outputs = batch_texts
-            
-            with open(self.output_log_file, "a", encoding="utf-8") as f:
-                f.write(batch_texts[0] + "\n")
-        
-            restore_tasks = [
-                a.restore.remote(g)
-                for a in self.training_actors
+            push_tasks = [
+                engine.collective_rpc.remote("update_weights_from_ipc_handles", args=(ipc,))
+                for engine, ipc in zip(current_engines, ipc_handles_list)
             ]
+            ray.get(push_tasks)
+
+            gen_tasks = [
+                engine.generate.remote(prompts, self.sampler, use_tqdm=self.use_tqdm)
+                for engine in current_engines
+            ]
+            parallel_gens = ray.get(gen_tasks)
+
+            restore_tasks = []
+            for i, n_idx in enumerate(range(len(chunk))):
+                g = chunk[n_idx]
+                gen = parallel_gens[i]
+                actor = current_actors[i]
+
+                batch_texts = []
+                for out in gen:
+                    text_field = getattr(out, "outputs", None)
+                    if text_field and len(text_field) > 0 and hasattr(text_field[0], "text"):
+                        batch_texts.append(text_field[0].text)
+                        with open(self.full_output_log_file, "a", encoding="utf-8") as f:
+                            f.write(text_field[0].text + "\n")
+                    else:
+                        batch_texts.append(getattr(out, "text", str(out)))
+                
+                g.latest_outputs = batch_texts
+
+                with open(self.output_log_file, "a", encoding="utf-8") as f:
+                    f.write(batch_texts[0] + "\n")
+
+                restore_tasks.append(actor.restore.remote(g))
             ray.get(restore_tasks)
             self._push_weights()
             torch.cuda.empty_cache()
