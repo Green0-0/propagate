@@ -42,14 +42,14 @@ class Genome:
         self.latest_rewards = []
         self.starting_index = 0
 
-    def cross(self, other: 'Genome', existing_seeds: List[int], weight: float) -> Tuple['Genome', int]:
+    def cross(self, other: 'Genome', existing_seeds: List[int], seed_weight: float) -> Tuple['Genome', int]:
         """Perform crossover between this genome and another genome (possibly the same genome) to produce a child genome. 
         This crossover step must produce a unique new genome with i+1 seeds. If no unique seed can be found, a mutation is performed.
 
         Args:
             other (Genome): The other genome to crossover with. If None or the same as self, a mutation is performed instead.
             existing_seeds (List[int]): A list of existing seeds already produced by the parent in other children to avoid duplicates.
-            weight (float): The weight to assign to the new seed. This corresponds with the hyperparameter sigma.
+            seed_weight (float): The weight to assign to the new seed. This corresponds with the hyperparameter sigma.
             
         Returns:
             Tuple[Genome, int]: A tuple containing the child genome and the newly added seed.
@@ -66,7 +66,7 @@ class Genome:
         child.historical_rewards = self.historical_rewards.copy()
         child.starting_index = self.starting_index
         if other is None or other is self:
-            return child, child.mutate_seed(weight)
+            return child, child.mutate_seed(seed_weight)
         
         novel_seeds = []
         for i in range(other.starting_index, len(other.seeds)):
@@ -74,7 +74,7 @@ class Genome:
             if s not in self.seeds and s not in existing_seeds:
                 novel_seeds.append(s)
         if not novel_seeds:
-            return child, child.mutate_seed(weight)
+            return child, child.mutate_seed(seed_weight)
 
         index = randint(0, len(novel_seeds) - 1)
         selected_seed = novel_seeds[index]
@@ -84,11 +84,11 @@ class Genome:
         child.seed_weights.append(other.seed_weights[original_index_in_other])
         return child, selected_seed
 
-    def mutate_seed(self, weight: float) -> int:
+    def mutate_seed(self, seed_weight: float) -> int:
         """Mutate the genome by adding a new unique seed.
 
         Args:
-            weight (float): The weight to assign to the new seed. This corresponds with the hyperparameter sigma.
+            seed_weight (float): The weight to assign to the new seed. This corresponds with the hyperparameter sigma.
 
         Returns:
             int: The newly added seed.
@@ -97,7 +97,7 @@ class Genome:
         while new_seed in self.seeds:
             new_seed = randint(0, 2**32 - 1)
         self.seeds.append(new_seed)
-        self.seed_weights.append(weight)
+        self.seed_weights.append(seed_weight)
         return new_seed
     
     def update_tensor(self, named_parameters, device):

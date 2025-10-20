@@ -16,7 +16,7 @@ backend = VLLMBackendTP(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=2, CPUS_
 trainer = SimpleTrainer(
     population_size=20,
     learning_rate=0.0005,
-    weight=0.001,
+    seed_weight=0.001,
     backend=backend,
     dataset=dataset
 )

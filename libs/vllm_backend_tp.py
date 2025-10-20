@@ -22,7 +22,7 @@ class VLLMBackendTP(Backend):
     output_log_file: str
     full_output_log_file: str
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_TRAINING_ACTOR: float, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, output_log_file: str = "logs/output.log", full_output_log_file: str = "logs/full_output.log"):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_TRAINING_ACTOR: float, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, output_log_file: str = "logs/output.log", full_output_log_file: str = "logs/full_output.log", use_tqdm: bool = False, time_self: bool = True):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
 
         #--------------------------------------------------------#
@@ -64,18 +64,24 @@ class VLLMBackendTP(Backend):
                 return True
         #-----------------------------------------------------#
 
+        print("#-- Initializing Backend [VLLMBackendTP] --#")
+        print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction Training Actor: {GPU_FRACTION_TRAINING_ACTOR}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
         ray.init(ignore_reinit_error=True)
         pg = placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}] * NUM_GPUS)
         ray.get(pg.ready())
 
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.sampler = Sampler
+        self.use_tqdm = use_tqdm
+        self.time_self = time_self
 
         self.output_log_file = output_log_file
         self.full_output_log_file = full_output_log_file
-        open(self.output_log_file, "a", encoding="utf-8").close()
-        open(self.full_output_log_file, "a", encoding="utf-8").close()
+        open(self.output_log_file, "w", encoding="utf-8").close()
+        open(self.full_output_log_file, "w", encoding="utf-8").close()
 
+        print("#-- Spawning Training Actors --#")
         # Spawn training actors
         self.training_actors = []
         for bidx in range(NUM_GPUS):
@@ -90,7 +96,7 @@ class VLLMBackendTP(Backend):
             ).remote()
             self.training_actors.append(a)
 
-        # Spawn a single vLLM engine across all bundles (co-located)
+        print(f"#-- Spawning singular vLLM instance with TP --#")
         bundle_indices = list(range(NUM_GPUS))
         self.llm = ray.remote(
             num_cpus=0,
@@ -108,7 +114,7 @@ class VLLMBackendTP(Backend):
             bundle_indices=bundle_indices,
         )
 
-        # Verify co-location
+        print("#-- Verifying Co-location of Training Actors and vLLM Workers --#")
         training_actor_device_ids = []
         for idx, a in enumerate(self.training_actors):
             dev_id = ray.get(a.report_device_id.remote())
@@ -122,6 +128,7 @@ class VLLMBackendTP(Backend):
             "Training actors and vLLM workers are NOT co-located!"
         
         self._push_weights()
+        print("#-- Backend Initialized --#")
         pass
 
     def _push_weights(self):
@@ -157,6 +164,7 @@ class VLLMBackendTP(Backend):
             prompts.append(s)
 
         for g in genomes:
+            start_time = time.time()
             perturb_tasks = [
                 a.perturb.remote(g)
                 for a in self.training_actors
@@ -164,7 +172,7 @@ class VLLMBackendTP(Backend):
             ray.get(perturb_tasks)
             self._push_weights()
 
-            gen = ray.get(self.llm.generate.remote(prompts, self.sampler, use_tqdm=False))
+            gen = ray.get(self.llm.generate.remote(prompts, self.sampler, use_tqdm=self.use_tqdm))
             batch_texts = []
             for out in gen:
                 text_field = getattr(out, "outputs", None)
@@ -187,4 +195,8 @@ class VLLMBackendTP(Backend):
             ray.get(restore_tasks)
             self._push_weights()
             torch.cuda.empty_cache()
+
+            if self.time_self:
+                end_time = time.time()
+                print(f"#-- Genome outputs generated in {end_time - start_time:.2f} seconds --#")
 
