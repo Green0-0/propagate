@@ -20,3 +20,6 @@ trainer = SimpleTrainer(
     backend=backend,
     dataset=dataset
 )
+
+for i in range(100):
+    trainer.train_step()

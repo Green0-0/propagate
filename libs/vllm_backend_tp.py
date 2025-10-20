@@ -91,7 +91,7 @@ class VLLMBackendTP(Backend):
         )(MyLLM).remote(
             model=model_name,
             enforce_eager=True,
-            worker_extension_cls="vllm_backend_utils.ColocateWorkerExtension",
+            worker_extension_cls="libs.vllm_backend_utils.ColocateWorkerExtension",
             tensor_parallel_size=max(1, NUM_GPUS),
             distributed_executor_backend="ray",
             gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
