@@ -1,6 +1,9 @@
 from typing import List, Tuple
 from random import randint
 
+from networkx import sigma
+import torch
+
 class Genome:
     seeds: List[int]
     seed_weights: List[float]
@@ -63,7 +66,7 @@ class Genome:
         child.historical_rewards = self.historical_rewards.copy()
         child.starting_index = self.starting_index
         if other is None or other is self:
-            return child, child._mutate_seed(weight)
+            return child, child.mutate_seed(weight)
         
         novel_seeds = []
         for i in range(other.starting_index, len(other.seeds)):
@@ -71,7 +74,7 @@ class Genome:
             if s not in self.seeds and s not in existing_seeds:
                 novel_seeds.append(s)
         if not novel_seeds:
-            return child, child._mutate_seed(weight)
+            return child, child.mutate_seed(weight)
 
         index = randint(0, len(novel_seeds) - 1)
         selected_seed = novel_seeds[index]
@@ -81,7 +84,7 @@ class Genome:
         child.seed_weights.append(other.seed_weights[original_index_in_other])
         return child, selected_seed
 
-    def _mutate_seed(self, weight: float) -> int:
+    def mutate_seed(self, weight: float) -> int:
         """Mutate the genome by adding a new unique seed.
 
         Args:
@@ -97,11 +100,27 @@ class Genome:
         self.seed_weights.append(weight)
         return new_seed
     
-    def apply_to_tensor(self, named_tensor):
-        pass
+    def update_tensor(self, named_parameters, device):
+        """Update the named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
+        for seed, weight in zip(self.seeds, self.seed_weights):
+            gen = torch.Generator(device=device)
+            gen.manual_seed(int(seed))
+            for _, p in named_parameters:
+                noise = torch.randn(p.shape, generator=gen, device=device, dtype=p.dtype)
+                noise.mul_(weight)
+                p.data.add_(noise)
+                del noise
     
-    def revert_from_tensor(self, named_tensor):
-        pass
+    def restore_tensor(self, named_parameters, device):
+        """Restore the original named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
+        for seed, weight in zip(self.seeds, self.seed_weights):
+            gen = torch.Generator(device=device)
+            gen.manual_seed(int(seed))
+            for _, p in named_parameters:
+                noise = torch.randn(p.shape, generator=gen, device=device, dtype=p.dtype)
+                noise.mul_(weight)
+                p.data.sub_(noise)
+                del noise
     
 def difference_rewards(A: Genome, B: Genome) -> float:
     """Calculate the difference in rewards attained on the outputs within the latest generation between two genomes.

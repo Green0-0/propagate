@@ -1,9 +1,16 @@
+from abc import ABC, abstractmethod
 from typing import List, Dict
 
-class backend:
-    def apply_genome(self, genome):
+from libs.genome import Genome
+
+class Backend(ABC):
+    @abstractmethod
+    def update(self, genome: Genome):
+        """Update the model permanently with a genome as the source."""
         pass
-    def revert_genome(self, genome):
+
+    @abstractmethod
+    def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]) -> List[List[str]]:
+        """Generate outputs based on the genome and inputs."""
         pass
-    def generate_outputs(self, inputs: List[List[Dict[str, str]]]) -> List[str]:
-        return []
+

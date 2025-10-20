@@ -33,16 +33,14 @@ class Dataset:
 
     def next(
         self
-    ) -> Tuple[List[List[Dict[str, str]]], List[Callable[[str], float]]]:
+    ) -> List[List[Dict[str, str]]]:
         """
         Return the next `batch_size` entries from the dataset, wrapping around
         when the end of the list is reached.
 
         Output
         ------
-        A tuple consisting of:
-            1. list of sharegpt formatted texts  : List[List[Dict[str, str]]]
-            2. associated reward functions   : List[Callable[[str], float]]
+        A list of input texts in ShareGPT format.
         """
         n_pairs = len(self.pairs)
         if n_pairs == 0:
@@ -61,15 +59,11 @@ class Dataset:
 
         dict_lists, funcs = zip(*batch)
         self.last_batch = (list(dict_lists), list(funcs))
-        return self.last_batch
+        return self.last_batch[0]
 
-    def score(self, genome: Genome) -> float:
+    def score(self, genome: Genome):
         """
         Compute the score of the given genome based on the last batch. Update the genome's reward history, and the set of its latest rewards.
-
-        Output
-        ------
-        A float representing the mean score of the genome.
         """
         if not self.last_batch:
             raise ValueError("No last batch available. Score should be done on a batch after outputs are generated.")
@@ -82,7 +76,6 @@ class Dataset:
         genome.latest_rewards = [func(output) for func, output in zip(funcs, genome.latest_outputs)]
         mean_reward = sum(genome.latest_rewards) / len(genome.latest_rewards)
         genome.historical_rewards.append(mean_reward)
-        return mean_reward
 
 def combine_datasets(datasets: List[Dataset], shuffle: bool = False) -> Dataset:
     """Combine multiple datasets into a single dataset.
