@@ -1,5 +1,5 @@
 from typing import Dict, List
-from libs.backend import backend
+from libs.backend import Backend
 
 import os
 import ray
@@ -13,7 +13,7 @@ from vllm import LLM, SamplingParams
 
 from libs.genome import Genome
 
-class VLLMBackendTP(backend):
+class VLLMBackendTP(Backend):
     training_actors: List[ray.actor.ActorHandle]
     llm: ray.actor.ActorHandle
     tokenizer: AutoTokenizer
