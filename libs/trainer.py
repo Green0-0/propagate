@@ -59,17 +59,6 @@ class SimpleTrainer:
         for genome in self.genomes:
             self.dataset.score(genome)
 
-        new_genome = merge_genomes(
-            self.genomes,
-            self.learning_rate
-        )
-
-        self.backend.update(new_genome)
-
-        self.genomes = [Genome() for _ in range(self.population_size)]
-        for genome in self.genomes:
-            genome.mutate_seed(self.seed_weight)
-
         end_time = time.time()
 
         sum_scores = sum(genome.historical_rewards[-1] for genome in self.genomes)
@@ -81,3 +70,14 @@ class SimpleTrainer:
             f.write(f"IT {self.iteration_count}: Average {average}, Min {min_score}, Max {max_score}, Stddev {stddev} in {end_time - start_time:.2f} seconds\n")
         print(f"\n\n#-- Iteration average: {average}, min: {min_score}, max: {max_score}, stddev: {stddev} --#")
         print(f"#-- Completed in {end_time - start_time:.2f} seconds --#")
+
+        new_genome = merge_genomes(
+                    self.genomes,
+                    self.learning_rate
+                )
+
+        self.backend.update(new_genome)
+        
+        self.genomes = [Genome() for _ in range(self.population_size)]
+        for genome in self.genomes:
+            genome.mutate_seed(self.seed_weight)
