@@ -19,7 +19,12 @@ class VLLMBackendTP(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_TRAINING_ACTOR: float, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams):
+    output_log_file: str
+    full_output_log_file: str
+
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_TRAINING_ACTOR: float, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, output_log_file: str = "logs/output.log", full_output_log_file: str = "logs/full_output.log"):
+        os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
+
         #--------------------------------------------------------#
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
@@ -65,6 +70,11 @@ class VLLMBackendTP(Backend):
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.sampler = Sampler
+
+        self.output_log_file = output_log_file
+        self.full_output_log_file = full_output_log_file
+        open(self.output_log_file, "a", encoding="utf-8").close()
+        open(self.full_output_log_file, "a", encoding="utf-8").close()
 
         # Spawn training actors
         self.training_actors = []
@@ -128,6 +138,7 @@ class VLLMBackendTP(Backend):
             for a in self.training_actors
         ]
         ray.get(perturb_tasks)
+        self._push_weights()
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
         """
@@ -151,6 +162,7 @@ class VLLMBackendTP(Backend):
                 for a in self.training_actors
             ]
             ray.get(perturb_tasks)
+            self._push_weights()
 
             gen = ray.get(self.llm.generate.remote(prompts, self.sampler, use_tqdm=False))
             batch_texts = []
@@ -158,15 +170,21 @@ class VLLMBackendTP(Backend):
                 text_field = getattr(out, "outputs", None)
                 if text_field and len(text_field) > 0 and hasattr(text_field[0], "text"):
                     batch_texts.append(text_field[0].text)
+                    with open(self.full_output_log_file, "a", encoding="utf-8") as f:
+                        f.write(text_field[0].text + "\n")
                 else:
                     batch_texts.append(getattr(out, "text", str(out)))
 
             g.latest_outputs = batch_texts
-
+            
+            with open(self.output_log_file, "a", encoding="utf-8") as f:
+                f.write(batch_texts[0] + "\n")
+        
             restore_tasks = [
                 a.restore.remote(g)
                 for a in self.training_actors
             ]
             ray.get(restore_tasks)
+            self._push_weights()
             torch.cuda.empty_cache()
 
