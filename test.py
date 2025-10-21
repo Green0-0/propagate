@@ -1,6 +1,6 @@
 from libs.vllm_backend_tp import VLLMBackendTP
 from libs.vllm_backend_multi import VLLMBackendMulti
-from libs.load_countdown_dataset import load_countdown_dataset
+from libs.countdown_dataset import load_countdown_dataset
 from libs.genome import Genome
 from libs.trainer import SimpleTrainer
 from vllm import SamplingParams

@@ -65,4 +65,14 @@ def load_countdown_dataset(batch_size: int = 20) -> Dataset:
 
     return Dataset(batch_size, suffix, pairs)
 
-ds = load_countdown_dataset(30)
+if __name__ == "__main__":
+    ds = load_countdown_dataset(30)
+    print(ds.batch_size)
+    print(ds.suffix)
+    print(len(ds.pairs))
+    print(ds.pairs[0][0])
+    reward_fn = ds.pairs[0][1]
+    print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n<answer>((44 + 19) + 35)"))
+    print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n</think><answer>((44 + 19) + 35)"))
+    print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n</think></answer>((44 + 19) + 35)"))
+    print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n</think><answer>((44 + 19) + 35)</answer>"))
