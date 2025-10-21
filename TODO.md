@@ -2,7 +2,7 @@
 - Check if the two existing backends work properly
 - Submit tests of 250 iterations for pop = 10, 20, 30
 
-- Create a backend for CPU-vLLM-TP and CPU-vLLM-Multigpu
+- Create a backend following the official implementation
 - Create a backend for 4 bit bnb (maybe apply modifications to the scales and zeropoints of the quant config, or dequant the whole model and keep a sep. copy on cpu)
 - Create a dataset for multiplication, AIME, GSM8K, GPQA
 - Write a backup method that backs up the genome by saving all historical seeds with their backprop weight, so that you can restore the model from the seeds
