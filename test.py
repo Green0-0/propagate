@@ -11,7 +11,7 @@ dataset.batch_size = 50
 sampler = SamplingParams(
     temperature=0.05,
     top_p=0.99,
-    max_tokens=512
+    max_tokens=1000
 )
 backend = VLLMBackendMulti(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=2, CPUS_PER_GPU=6, GPU_FRACTION_TRAINING_ACTOR=0.3, GPU_FRACTION_VLLM_WORKER=0.65, Sampler=sampler)
 trainer = SimpleTrainer(
@@ -22,5 +22,5 @@ trainer = SimpleTrainer(
     dataset=dataset
 )
 
-for i in range(100):
+for i in range(250):
     trainer.train_step()

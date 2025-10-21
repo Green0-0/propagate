@@ -1,9 +1,0 @@
-- vllm batched generator
-- vllm tp generator
-- memorize crossover pairs and chosen seeds to pick mutations
-- similarity comparisons, speciation, speciation merging index, general merging index
-- comprehensive logging
-Merge method
-Remove prune sync lists
-Keep undesirable seeds
-calculate rewards on seed, send outputs to seed
