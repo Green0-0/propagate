@@ -51,6 +51,8 @@ class VLLMBackendTP(Backend):
                 from vllm.platforms import current_platform
                 self.device_uuid = current_platform.get_device_uuid(0)
 
+                self.world_size = 1
+
             def report_device_id(self):
                 return self.device_uuid
 
@@ -69,6 +71,7 @@ class VLLMBackendTP(Backend):
                 return True
             
             def init_collective(self, world_size: int, rank: int, backend: str = "nccl", group_name: str = "actor_sync_group"):
+                self.world_size = world_size
                 if collective.is_group_initialized(group_name):
                     return True
                 collective.init_collective_group(
@@ -83,7 +86,6 @@ class VLLMBackendTP(Backend):
                 if not collective.is_group_initialized("actor_sync_group"):
                     return True
                 with torch.no_grad():
-                    world_size = collective.get_world_size(group_name="actor_sync_group")
                     for name, p in self.model.named_parameters():
                         collective.allreduce(
                             p.data, 
@@ -91,7 +93,7 @@ class VLLMBackendTP(Backend):
                             group_name="actor_sync_group"
                         )
                         
-                        p.data.div_(world_size)
+                        p.data.div_(self.world_size)
                 
                 torch.cuda.synchronize(self.device)
                 return True
