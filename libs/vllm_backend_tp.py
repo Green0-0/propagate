@@ -68,6 +68,17 @@ class VLLMBackendTP(Backend):
                 torch.cuda.synchronize(self.device)
                 return True
             
+            def init_collective(self, world_size: int, rank: int, backend: str = "nccl", group_name: str = "actor_sync_group"):
+                if collective.is_group_initialized(group_name):
+                    return True
+                collective.init_collective_group(
+                    world_size=world_size,
+                    rank=rank,
+                    backend=backend,
+                    group_name=group_name,
+                )
+                return True
+            
             def perform_all_reduce_sync(self):
                 if not collective.is_group_initialized("actor_sync_group"):
                     return True
@@ -143,14 +154,15 @@ class VLLMBackendTP(Backend):
         if len(self.training_actors) > 1:
             print("#-- Initializing Ray Collective group for GPU sync --#")
             world_size = len(self.training_actors)
-
-            collective.init_collective_group(
-                self.training_actors,
-                world_size=world_size,
-                ranks=list(range(world_size)),
-                backend="nccl",
-                group_name="actor_sync_group"
-            )
+            ray.get([
+                a.init_collective.remote(
+                    world_size=world_size,
+                    rank=rank,
+                    backend="nccl",
+                    group_name="actor_sync_group",
+                )
+                for rank, a in enumerate(self.training_actors)
+            ])
             print("#-- Collective group initialized --#")
         else:
             print("#-- Skipping collective group (1 GPU) --#")
