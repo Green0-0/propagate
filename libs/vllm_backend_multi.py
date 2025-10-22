@@ -281,14 +281,7 @@ class VLLMBackendMulti(Backend):
 
                 restore_tasks.append(actor.restore.remote(g))
             ray.get(restore_tasks)
-
-            if len(self.training_actors) > 1:
-                sync_tasks = [
-                    a.perform_all_reduce_sync.remote()
-                    for a in self.training_actors
-                ]
-                ray.get(sync_tasks)
-
+            
             self._push_weights()
             torch.cuda.empty_cache()
 

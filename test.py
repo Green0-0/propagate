@@ -9,13 +9,13 @@ dataset = load_countdown_dataset()
 dataset.batch_size = 50
 
 sampler = SamplingParams(
-    temperature=0.05,
+    temperature=0.01,
     top_p=0.99,
     max_tokens=1024
 )
-backend = VLLMBackendTP(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=2, CPUS_PER_GPU=6, GPU_FRACTION_TRAINING_ACTOR=0.3, GPU_FRACTION_VLLM_WORKER=0.65, Sampler=sampler)
+backend = VLLMBackendMulti(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_TRAINING_ACTOR=0.3, GPU_FRACTION_VLLM_WORKER=0.65, Sampler=sampler)
 trainer = SimpleTrainer(
-    population_size=10,
+    population_size=12,
     learning_rate=0.0005,
     seed_weight=0.001,
     backend=backend,
