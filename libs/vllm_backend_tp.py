@@ -15,7 +15,7 @@ from libs.genome import Genome
 
 from ray.util import collective
 import torch.distributed as dist
-from torch.distributed import ReduceOp
+from ray.util.collective import ReduceOp
 
 class VLLMBackendTP(Backend):
     training_actors: List[ray.actor.ActorHandle]
@@ -89,7 +89,7 @@ class VLLMBackendTP(Backend):
                     for name, p in self.model.named_parameters():
                         collective.allreduce(
                             p.data, 
-                            op=dist.ReduceOp.SUM, 
+                            op=ReduceOp.SUM, 
                             group_name="actor_sync_group"
                         )
                         
