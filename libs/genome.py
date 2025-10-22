@@ -100,6 +100,7 @@ class Genome:
         self.seed_weights.append(seed_weight)
         return new_seed
     
+    @torch.inference_mode()
     def update_tensor(self, named_parameters, device):
         """Update the named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
         for seed, weight in zip(self.seeds, self.seed_weights):
@@ -111,6 +112,7 @@ class Genome:
                 p.data.add_(noise)
                 del noise
     
+    @torch.inference_mode()
     def restore_tensor(self, named_parameters, device):
         """Restore the original named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
         for seed, weight in zip(self.seeds, self.seed_weights):
