@@ -89,7 +89,6 @@ class VLLMBackendMulti(Backend):
                     for name, p in self.model.named_parameters():
                         collective.allreduce(
                             p.data, 
-                            op="SUM", 
                             group_name="actor_sync_group"
                         )
                         
