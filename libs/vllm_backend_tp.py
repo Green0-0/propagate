@@ -92,7 +92,7 @@ class VLLMBackendTP(Backend):
 
         print("#-- Initializing Backend [VLLMBackendTP] --#")
         print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction Training Actor: {GPU_FRACTION_TRAINING_ACTOR}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
-        ray.init(ignore_reinit_error=True)
+        ray.init(address=None, ignore_reinit_error=True)
         pg = placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}] * NUM_GPUS)
         ray.get(pg.ready())
 
@@ -246,7 +246,7 @@ class VLLMBackendTP(Backend):
                     for a in self.training_actors
                 ]
                 ray.get(sync_tasks)
-                
+
             self._push_weights()
             torch.cuda.empty_cache()
 

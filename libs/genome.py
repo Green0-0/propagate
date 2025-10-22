@@ -1,7 +1,6 @@
 from typing import List, Tuple
 from random import randint
 
-from networkx import sigma
 import torch
 
 class Genome:

@@ -93,7 +93,7 @@ class VLLMBackendMulti(Backend):
 
         print("#-- Initializing Backend [VLLMBackendTP] --#")
         print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction Training Actor: {GPU_FRACTION_TRAINING_ACTOR}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
-        ray.init(ignore_reinit_error=True)
+        ray.init(address=None, ignore_reinit_error=True)
         pgs = [placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}]) for _ in range(NUM_GPUS)]
         ray.get([pg.ready() for pg in pgs])
 
