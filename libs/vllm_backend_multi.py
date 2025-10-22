@@ -14,6 +14,10 @@ from vllm import LLM, SamplingParams
 
 from libs.genome import Genome
 
+from ray.util import collective
+import torch.distributed as dist
+from torch.distributed import ReduceOp
+
 class VLLMBackendMulti(Backend):
     training_actors: List[ray.actor.ActorHandle]
     llm: ray.actor.ActorHandle
@@ -64,6 +68,27 @@ class VLLMBackendMulti(Backend):
                 genome.restore_tensor(self.model.named_parameters(), device=self.device)
                 torch.cuda.synchronize(self.device)
                 return True
+            
+            def perform_all_reduce_sync(self):
+                if not collective.is_group_initialized("actor_sync_group"):
+                    return True
+                with torch.no_grad():
+                    world_size = collective.get_world_size(group_name="actor_sync_group")
+                    for name, p in self.model.named_parameters():
+                        collective.allreduce(
+                            p.data, 
+                            op=dist.ReduceOp.SUM, 
+                            group_name="actor_sync_group"
+                        )
+                        
+                        p.data.div_(world_size)
+                
+                torch.cuda.synchronize(self.device)
+                return True
+            
+            def __del__(self):
+                if collective.is_group_initialized("actor_sync_group"):
+                    collective.destroy_collective_group("actor_sync_group")
         #-----------------------------------------------------#
 
         print("#-- Initializing Backend [VLLMBackendTP] --#")
@@ -116,6 +141,21 @@ class VLLMBackendMulti(Backend):
                 bundle_indices=[0],
             )
             self.inference_engines.append(eng)
+
+        if len(self.training_actors) > 1:
+            print("#-- Initializing Ray Collective group for GPU sync --#")
+            world_size = len(self.training_actors)
+
+            collective.init_collective_group(
+                self.training_actors,
+                world_size=world_size,
+                ranks=list(range(world_size)),
+                backend="nccl",
+                group_name="actor_sync_group"
+            )
+            print("#-- Collective group initialized --#")
+        else:
+            print("#-- Skipping collective group (1 GPU) --#")
         
         print("#-- Verifying Co-location of Training Actors and vLLM Workers --#")
         for bidx in range(NUM_GPUS):
@@ -152,6 +192,13 @@ class VLLMBackendMulti(Backend):
             for a in self.training_actors
         ]
         ray.get(perturb_tasks)
+
+        if len(self.training_actors) > 1:
+            sync_tasks = [
+                a.perform_all_reduce_sync.remote()
+                for a in self.training_actors
+            ]
+            ray.get(sync_tasks)
         self._push_weights()
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
@@ -222,6 +269,14 @@ class VLLMBackendMulti(Backend):
 
                 restore_tasks.append(actor.restore.remote(g))
             ray.get(restore_tasks)
+
+            if len(self.training_actors) > 1:
+                sync_tasks = [
+                    a.perform_all_reduce_sync.remote()
+                    for a in self.training_actors
+                ]
+                ray.get(sync_tasks)
+
             self._push_weights()
             torch.cuda.empty_cache()
 
