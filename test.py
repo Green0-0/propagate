@@ -5,7 +5,9 @@ from libs.genome import Genome
 from libs.trainer import SimpleTrainer
 from vllm import SamplingParams
 
+import gc
 import torch
+gc.collect()
 torch.cuda.empty_cache()
 
 dataset = load_countdown_dataset()
