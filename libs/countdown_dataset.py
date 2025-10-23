@@ -25,7 +25,7 @@ def answer_reward_function(response: str, numbers: List[int], target: int) -> fl
     try:
         result = eval(answer_content, {"__builtins__": None}, {})
         if abs(float(result) - float(target)) < 1e-5:
-            return 0.7
+            return 0.91
     except:
         return 0.0
     return 0.0
@@ -55,7 +55,7 @@ def load_countdown_dataset(batch_size: int = 20) -> Dataset:
 
         def create_reward_function(numbers: List[int], target: str) -> Callable[[str], float]:
             def reward_fn(response: str) -> float:
-                result = format_reward(response, 0.1, "", "</think>", "<answer>", "</answer>") + answer_reward_function(response, numbers, int(target))
+                result = format_reward(response, 0.03, "", "</think>", "<answer>", "</answer>") + answer_reward_function(response, numbers, int(target))
                 return result
             return reward_fn
         

@@ -1,5 +1,6 @@
 # TODO
 - Check if the two existing backends work properly
+- Report length statistics on outputs, plot the rewards with matplotlib
 - Submit tests of 250 iterations for pop = 10, 20, 30
 
 - Create a backend following the official implementation
