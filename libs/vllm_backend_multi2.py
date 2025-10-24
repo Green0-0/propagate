@@ -19,7 +19,7 @@ from libs.genome import Genome
 from ray.util import collective
 from torch.distributed import ReduceOp
 
-class VLLMBackendMulti(Backend):
+class VLLMBackendMulti2(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
