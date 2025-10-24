@@ -61,12 +61,12 @@ class VLLMBackendMulti(Backend):
                 return {self.device_uuid: {name: reduce_tensor(p.detach()) for name, p in self.model.named_parameters()}}
 
             def perturb(self, genome: Genome):
-                genome.update_tensor(self.model.named_parameters(), device=self.device)
+                genome.update_tensor(self.model.named_parameters())
                 torch.cuda.synchronize(self.device)
                 return True
 
             def restore(self, genome: Genome):
-                genome.restore_tensor(self.model.named_parameters(), device=self.device)
+                genome.restore_tensor(self.model.named_parameters())
                 torch.cuda.synchronize(self.device)
                 return True
             
