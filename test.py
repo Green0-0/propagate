@@ -1,4 +1,3 @@
-from libs.vllm_backend_tp import VLLMBackendTP
 from libs.vllm_backend_multi import VLLMBackendMulti
 from libs.vllm_backend_multi2 import VLLMBackendMulti2
 from libs.countdown_dataset import load_countdown_dataset

@@ -23,14 +23,14 @@ class WorkerExtension:
         time.sleep(1)
 
     def perturb_self_weights(self, genome: Genome):
-        genome.update_tensor(named_parameters=self.model_runner.model)
+        genome.update_tensor(model=self.model_runner.model)
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     def restore_self_weights(self, genome: Genome):
-        genome.restore_tensor(named_parameters=self.model_runner.model)
+        genome.restore_tensor(model=self.model_runner.model)
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
