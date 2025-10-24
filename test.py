@@ -11,15 +11,14 @@ import torch
 gc.collect()
 torch.cuda.empty_cache()
 
-dataset = load_countdown_dataset()
-dataset.batch_size = 100
+dataset = load_countdown_dataset(batch_size=200, pairs_loaded=200)
 
 sampler = SamplingParams(
     temperature=0.01,
     top_p=0.99,
     max_tokens=1024
 )
-backend = VLLMBackendMulti2(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=1, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, Sampler=sampler)
+backend = VLLMBackendMulti2(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=2, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.85, Sampler=sampler)
 trainer = SimpleTrainer(
     population_size=12,
     learning_rate=0.0005,

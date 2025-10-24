@@ -82,7 +82,7 @@ class VLLMBackendMulti2(Backend):
                 enforce_eager=False,
                 worker_extension_cls="libs.vllm_genome_utils.WorkerExtension",
                 tensor_parallel_size=1,
-                distributed_executor_backend="ray",
+                #distributed_executor_backend="ray",
                 dtype="float16",
                 enable_prefix_caching=False
             )

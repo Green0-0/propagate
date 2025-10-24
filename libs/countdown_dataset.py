@@ -31,7 +31,7 @@ def answer_reward_function(response: str, numbers: List[int], target: int) -> fl
     return 0.0
 
     
-def load_countdown_dataset(batch_size: int = 20) -> Dataset:
+def load_countdown_dataset(batch_size: int = 200, pairs_loaded: int = 200) -> Dataset:
     json_path = "libs/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
@@ -40,7 +40,7 @@ def load_countdown_dataset(batch_size: int = 20) -> Dataset:
     suffix = "<think>"
     pairs = []
     
-    for item in data:
+    for item in data[0:pairs_loaded]:
         context = item["context"]
         if context.endswith("Let me solve this step by step.\n<think>"):
             context = context[:-len("Let me solve this step by step.\n<think>")]
