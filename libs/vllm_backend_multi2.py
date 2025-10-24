@@ -180,7 +180,12 @@ class VLLMBackendMulti2(Backend):
             genome = meta["genome"]
 
             genome.latest_outputs = [o.outputs[0].text if hasattr(o, "outputs") and len(o.outputs) > 0 and hasattr(o.outputs[0], "text") else "" for o in outputs]
-            
+            with open(self.output_log_file, "a", encoding="utf-8") as f:
+                f.write(genome.latest_outputs[0] + "\n")
+            for output in genome.latest_outputs:
+                with open(self.full_output_log_file, "a", encoding="utf-8") as f:
+                    f.write(output + "\n")
+
             llm = meta["engine"]
             # Remove the exploration perturbation
             ray.get(llm.collective_rpc.remote("restore_self_weights", args=(genome,)))
