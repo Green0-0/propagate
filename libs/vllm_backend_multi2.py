@@ -26,7 +26,7 @@ class VLLMBackendMulti2(Backend):
     output_log_file: str
     full_output_log_file: str
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_TRAINING_ACTOR: float, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, output_log_file: str = "logs/output.log", full_output_log_file: str = "logs/full_output.log", use_tqdm: bool = False, time_self: bool = True):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, output_log_file: str = "logs/output.log", full_output_log_file: str = "logs/full_output.log", use_tqdm: bool = False, time_self: bool = True):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -44,7 +44,7 @@ class VLLMBackendMulti2(Backend):
         #-----------------------------------------------------#
 
         print("#-- Initializing Backend [VLLMBackendTP] --#")
-        print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction Training Actor: {GPU_FRACTION_TRAINING_ACTOR}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
+        print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
         ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
 
         pgs = [placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}]) for _ in range(NUM_GPUS)]

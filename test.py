@@ -19,16 +19,13 @@ sampler = SamplingParams(
     top_p=0.99,
     max_tokens=1024
 )
-backend = VLLMBackendMulti2(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_TRAINING_ACTOR=0.35, GPU_FRACTION_VLLM_WORKER=0.6, Sampler=sampler, output_log_file="logs/output_fullrun.log", full_output_log_file="logs/full_output_fullrun.log")
+backend = VLLMBackendMulti2(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=1, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, Sampler=sampler)
 trainer = SimpleTrainer(
-    population_size=28,
+    population_size=12,
     learning_rate=0.0005,
     seed_weight=0.001,
     backend=backend,
-    dataset=dataset,
-    output_log_file="logs/output_fullrun.log",
-    full_output_log_file="logs/full_output_fullrun.log",
-    reward_log_file="logs/reward_fullrun.log"
+    dataset=dataset
 )
 
 for i in range(250):
