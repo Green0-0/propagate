@@ -8,14 +8,11 @@ from libs.genome import Genome
 from ray.util import collective
 
 class WorkerExtension:
-    def __init__(self):
-        self.world_size = 1
-        self.rank = 0
-        self.collective_group_name = "weight_sync_group"
-
     def init_collective_group(self, world_size: int, rank: int, backend: str = "nccl"):
+        self.collective_group_name = "weight_sync_group"
         self.world_size = world_size
         self.rank = rank
+        
         if collective.is_group_initialized(self.collective_group_name):
             collective.destroy_collective_group(self.collective_group_name)
         

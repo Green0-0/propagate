@@ -16,3 +16,5 @@
 
 - Write google colab notebook
 - Write kaggle notebook
+
+- Model merging strategies from https://arxiv.org/pdf/2408.07666
