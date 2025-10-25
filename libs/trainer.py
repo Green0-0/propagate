@@ -52,7 +52,7 @@ class SimpleTrainer:
             if hasattr(backend, "GPU_FRACTION_VLLM_WORKER"):
                 config["GPU_FRACTION_VLLM_WORKER"] = backend.GPU_FRACTION_VLLM_WORKER
             wandb.init(project=self.wandb_project, config=config)
-            wandb.define_metric("iteration_count", step_metric=True)
+            wandb.define_metric("iteration_count")
             wandb.define_metric("train/*", step_metric="iteration_count")
             wandb.define_metric("val/*", step_metric="iteration_count")
             print(f"#-- WandB logging initialized for project: {self.wandb_project} --#")
