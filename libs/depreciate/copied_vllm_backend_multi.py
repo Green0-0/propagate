@@ -23,10 +23,7 @@ class VLLMBackendMulti2(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    output_log_file: str
-    full_output_log_file: str
-
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, output_log_file: str = "logs/output.log", full_output_log_file: str = "logs/full_output.log", use_tqdm: bool = False, time_self: bool = True):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -63,11 +60,6 @@ class VLLMBackendMulti2(Backend):
         self.sampler = Sampler
         self.use_tqdm = use_tqdm
         self.time_self = time_self
-
-        self.output_log_file = output_log_file
-        self.full_output_log_file = full_output_log_file
-        open(self.output_log_file, "w", encoding="utf-8").close()
-        open(self.full_output_log_file, "w", encoding="utf-8").close()
 
         print("#-- Spawning Training Actors with vLLM backends --#")
         # Spawn training actors
@@ -180,11 +172,6 @@ class VLLMBackendMulti2(Backend):
             genome = meta["genome"]
 
             genome.latest_outputs = [o.outputs[0].text if hasattr(o, "outputs") and len(o.outputs) > 0 and hasattr(o.outputs[0], "text") else "" for o in outputs]
-            with open(self.output_log_file, "a", encoding="utf-8") as f:
-                f.write(genome.latest_outputs[0] + "\n")
-            for output in genome.latest_outputs:
-                with open(self.full_output_log_file, "a", encoding="utf-8") as f:
-                    f.write(output + "\n")
 
             llm = meta["engine"]
             # Remove the exploration perturbation

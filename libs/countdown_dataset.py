@@ -31,7 +31,7 @@ def answer_reward_function(response: str, numbers: List[int], target: int) -> fl
     return 0.0
 
     
-def load_countdown_dataset(batch_size: int = 200, pairs_loaded: int = 200) -> Dataset:
+def load_countdown_dataset(batch_size: int = 200) -> Dataset:
     json_path = "libs/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
@@ -40,7 +40,7 @@ def load_countdown_dataset(batch_size: int = 200, pairs_loaded: int = 200) -> Da
     suffix = "<think>"
     pairs = []
     
-    for item in data[0:pairs_loaded]:
+    for item in data:
         context = item["context"]
         if context.endswith("Let me solve this step by step.\n<think>"):
             context = context[:-len("Let me solve this step by step.\n<think>")]
@@ -69,9 +69,9 @@ if __name__ == "__main__":
     ds = load_countdown_dataset(30)
     print(ds.batch_size)
     print(ds.suffix)
-    print(len(ds.pairs))
-    print(ds.pairs[0][0])
-    reward_fn = ds.pairs[0][1]
+    print(len(ds.pairs_train))
+    print(ds.pairs_train[0][0])
+    reward_fn = ds.pairs_train[0][1]
     print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n<answer>((44 + 19) + 35)"))
     print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n</think><answer>((44 + 19) + 35)"))
     print(reward_fn("First, I will add 25 and 100 to get 125.\nThen, I will subtract 3 to get 122.\nFinally, I will multiply by 2 to get 244.\n</think></answer>((44 + 19) + 35)"))
