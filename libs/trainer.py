@@ -19,7 +19,7 @@ class SimpleTrainer:
 
     wandb_project: str
 
-    def __init__(self, population_size: int, learning_rate: float, seed_weight: float, backend: Backend, dataset: Dataset, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
+    def __init__(self, population_size: int, learning_rate: float, seed_weight: float, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
         print(f"#-- Population Size: {population_size}, Learning Rate: {learning_rate}, Weight: {seed_weight} --#")
         self.learning_rate = learning_rate
@@ -27,6 +27,8 @@ class SimpleTrainer:
         self.backend = backend
         self.dataset = dataset
         self.population_size = population_size
+        if mirror:
+            print("#-- Mirror mode enabled: population size doubled. --#")
 
         self.genomes = [Genome() for _ in range(population_size)]
         for genome in self.genomes:
@@ -45,7 +47,8 @@ class SimpleTrainer:
                 "population_size": population_size,
                 "learning_rate": learning_rate,
                 "seed_weight": seed_weight,
-                "batch_size": dataset.batch_size
+                "batch_size": dataset.batch_size,
+                "mirror": mirror
             }
             wandb.init(project=self.wandb_project, config=config)
             wandb.define_metric("iteration_count")
@@ -137,8 +140,11 @@ class SimpleTrainer:
         self.backend.update(new_genome)
         
         self.genomes = [Genome() for _ in range(self.population_size)]
+        mirrored_genomes = []
         for genome in self.genomes:
             genome.mutate_seed(self.seed_weight)
+            mirrored_genomes.append(genome)
+        self.genomes.extend(mirrored_genomes)
 
     def save_model_to_disk(self, filepath: str):
         self.backend.save_weights_to_disk(filepath)
