@@ -1,3 +1,4 @@
+import math
 from typing import List, Tuple
 from random import randint
 
@@ -99,6 +100,22 @@ class Genome:
         self.seed_weights.append(seed_weight)
         return new_seed
     
+    def get_mirrored(self) -> 'Genome':
+        """Get a mirrored version of this genome, where the latest seed is negated.
+
+        Returns:
+            Genome: The mirrored genome.
+        """
+        if self.seeds == []:
+            raise ValueError("Cannot mirror a genome with no seeds.")
+        mirrored = Genome()
+        mirrored.seeds = self.seeds.copy()
+        mirrored.seed_weights = self.seed_weights.copy()
+        mirrored.historical_rewards = self.historical_rewards.copy()
+        mirrored.starting_index = self.starting_index
+        mirrored.seed_weights[-1] = -mirrored.seed_weights[-1]
+        return mirrored
+    
     @torch.inference_mode()
     def update_tensor(self, model):
         """Update the named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
@@ -157,6 +174,7 @@ def merge_genomes(genomes: List[Genome], learning_rate: float) -> Genome:
     """Perform a single gradient step on a list of genomes based on their rewards r, seeds s, and learning rate a.
     The update rule for the new seeds follows the paper source [1/N * a * sum_j ((r_j - mean(r)) / stddev(r) * noise)]
     Since genomes may have taken different gradient steps in the past, the update rule for the previous gradients is simply an averaged merge.
+    Mirrors are treated by taking the sign of the weight into account.
     The weights of these updates are summed together to form the weights of the new seeds. 
     
     Args:
@@ -181,13 +199,13 @@ def merge_genomes(genomes: List[Genome], learning_rate: float) -> Genome:
                     old_seeds_count[seed] = 1
                     new_seeds[seed] = weight
                 else:
-                    new_seeds[seed] = (1/len(genomes)) * learning_rate * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
+                    new_seeds[seed] = math.copysign(1, weight) * (1/len(genomes)) * learning_rate * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
             else:
                 if i < g.starting_index:
                     old_seeds_count[seed] += 1
                     new_seeds[seed] += weight
                 else:
-                    new_seeds[seed] += (1/len(genomes)) * learning_rate * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
+                    new_seeds[seed] += math.copysign(1, weight) * (1/len(genomes)) * learning_rate * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
     # Average the old seeds' weights
     for seed, count in old_seeds_count.items():
         new_seeds[seed] /= count
@@ -197,5 +215,18 @@ def merge_genomes(genomes: List[Genome], learning_rate: float) -> Genome:
         merged.seeds.append(seed)
         merged.seed_weights.append(weight)
         merged.historical_rewards.append(float('-inf'))  # placeholder sentinel value for previous rewards
+    merged.starting_index = len(merged.seeds)
+    return merged
+
+def merge_genomes_max(genomes: List[Genome]) -> Genome:
+    """Merge genomes by taking only the seed of the best performing genome.
+
+    Args:
+        genomes (List[Genome]): The list of genomes to merge."""
+    best_genome = max(genomes, key=lambda g: g.historical_rewards[-1])
+    merged = Genome()
+    merged.seeds = best_genome.seeds.copy()
+    merged.seed_weights = best_genome.seed_weights.copy()
+    merged.historical_rewards = [float('-inf')] * len(merged.seeds)  # placeholder sentinel values for previous rewards
     merged.starting_index = len(merged.seeds)
     return merged
