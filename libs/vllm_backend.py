@@ -202,4 +202,6 @@ class VLLMBackend(Backend):
         if self.world_size > 1:
             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
             
+    def save_weights_to_disk(self, filepath: str):
+        ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
 

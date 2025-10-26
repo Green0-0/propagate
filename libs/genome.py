@@ -1,3 +1,4 @@
+import json
 import math
 from typing import List, Tuple
 from random import randint
@@ -230,3 +231,42 @@ def merge_genomes_max(genomes: List[Genome]) -> Genome:
     merged.historical_rewards = [float('-inf')] * len(merged.seeds)  # placeholder sentinel values for previous rewards
     merged.starting_index = len(merged.seeds)
     return merged
+
+def save_genome_to_disk(genome_history: List[Genome], filepath: str):
+    """Save the genome history to disk. Assumes the genome history is non-overlapping, that is, each genome represents a unique weight update. If they do overlap, please merge them or only save the genomes one at a time.
+
+    Args:
+        genome_history (List[Genome]): The list of genomes representing the history.
+        filepath (str): The file path to save the genome history.
+    """
+    seeds = []
+    weights = []
+    for genome in genome_history:
+        seeds.extend(genome.seeds)
+        weights.extend(genome.seed_weights)
+
+    json_data = {
+        "seeds": seeds,
+        "weights": weights
+    }
+    with open(filepath, 'w') as f:
+        json.dump(json_data, f)
+
+def load_genome_from_disk(filepath: str) -> Genome:
+    """Load a genome from disk.
+
+    Args:
+        filepath (str): The file path to load the genome from.
+
+    Returns:
+        Genome: The loaded genome.
+    """
+    with open(filepath, 'r') as f:
+        json_data = json.load(f)
+    
+    genome = Genome()
+    genome.seeds = json_data["seeds"]
+    genome.seed_weights = json_data["weights"]
+    genome.historical_rewards = [float('-inf')] * len(genome.seeds)  # placeholder sentinel values for previous rewards
+    genome.starting_index = len(genome.seeds)
+    return genome

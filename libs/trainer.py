@@ -1,7 +1,7 @@
 from typing import List
 from libs.backend import Backend
 from libs.dataset import Dataset
-from libs.genome import Genome, merge_genomes
+from libs.genome import Genome, merge_genomes, save_genome_to_disk
 import time
 import wandb
 
@@ -13,6 +13,7 @@ class SimpleTrainer:
     dataset: Dataset
 
     genomes: List[Genome]
+    historical_genome_steps : List[Genome]
 
     iteration_count: int
 
@@ -30,6 +31,7 @@ class SimpleTrainer:
         self.genomes = [Genome() for _ in range(population_size)]
         for genome in self.genomes:
             genome.mutate_seed(seed_weight)
+        self.historical_genome_steps = []
 
         self.iteration_count = 0
 
@@ -45,12 +47,6 @@ class SimpleTrainer:
                 "seed_weight": seed_weight,
                 "batch_size": dataset.batch_size
             }
-            if hasattr(backend, "NUM_GPUS"):
-                config["NUM_GPUS"] = backend.NUM_GPUS
-            if hasattr(backend, "CPUS_PER_GPU"):
-                config["CPUS_PER_GPU"] = backend.CPUS_PER_GPU
-            if hasattr(backend, "GPU_FRACTION_VLLM_WORKER"):
-                config["GPU_FRACTION_VLLM_WORKER"] = backend.GPU_FRACTION_VLLM_WORKER
             wandb.init(project=self.wandb_project, config=config)
             wandb.define_metric("iteration_count")
             wandb.define_metric("train/*", step_metric="iteration_count")
@@ -128,6 +124,7 @@ class SimpleTrainer:
         self.log_train_stats(self.genomes, end_time - start_time)
 
         new_genome = merge_genomes(self.genomes, self.learning_rate)
+        self.historical_genome_steps.append(new_genome)
 
         if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
             start_time = time.time()
@@ -142,3 +139,9 @@ class SimpleTrainer:
         self.genomes = [Genome() for _ in range(self.population_size)]
         for genome in self.genomes:
             genome.mutate_seed(self.seed_weight)
+
+    def save_model_to_disk(self, filepath: str):
+        self.backend.save_weights_to_disk(filepath)
+
+    def save_model_seeds(self, filepath: str):
+        save_genome_to_disk(self.historical_genome_steps, filepath)

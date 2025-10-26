@@ -33,3 +33,5 @@ trainer = SimpleTrainer(
 
 for i in range(250):
     trainer.train_step()
+
+trainer.save_model_seeds("saved_model/saved_model_seeds.json")

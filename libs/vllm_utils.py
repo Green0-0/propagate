@@ -64,3 +64,14 @@ class WorkerExtension:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
+
+    def save_weights_to_disk(self, filepath):
+        state_dict_to_save = {}
+        for name, p in self.model_runner.model.named_parameters():
+            state_dict_to_save[name] = p.detach().cpu()
+        torch.save(state_dict_to_save, filepath)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        time.sleep(0.1)
+        return True

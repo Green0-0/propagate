@@ -14,6 +14,8 @@
 - Write a trainer that performs speciation and does gradient step per species every x generations when x != n (where x=species gradient step counter)
 - Submit many tests
 
+- Add CMA-ES as tested in https://arxiv.org/abs/2507.04453v1
+
 - Write google colab notebook
 - Write kaggle notebook
 

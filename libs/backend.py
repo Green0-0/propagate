@@ -14,3 +14,7 @@ class Backend(ABC):
         """Generate outputs based on the genome and inputs."""
         pass
 
+    @abstractmethod
+    def save_weights_to_disk(self, filepath: str):
+        """Save the current model weights to disk."""
+        pass
