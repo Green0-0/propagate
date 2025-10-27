@@ -7,13 +7,13 @@ from libs.genome import Genome
 import math
 
 class Optimizer(ABC):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none"):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", optimizer_name: str = "Optimizer"):
         self.total_steps = total_steps
         self.learning_rate = learning_rate
         self.seed_weight = seed_weight
         self.warmup_steps = warmup_steps
         self.scheduler = scheduler
-
+        self.optimizer_name = optimizer_name
 
     @abstractmethod
     def get_step(self, genomes: List[Genome], current_step: int) -> Genome:
@@ -36,6 +36,9 @@ class Optimizer(ABC):
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
 
 class TestMaxOptimizer(Optimizer):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none"):
+        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="TestMaxOptimizer")
+
     def get_step(self, genomes: List[Genome], current_step: int) -> Genome:
         lr = self.get_lr(current_step)
         best_genome = max(genomes, key=lambda g: g.historical_rewards[-1])
@@ -47,6 +50,9 @@ class TestMaxOptimizer(Optimizer):
         return merged
 
 class SimpleOptimizer(Optimizer):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none"):
+        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="SimpleOptimizer")
+
     def get_step(self, genomes: List[Genome], current_step: int) -> Genome:
         """Perform a single gradient step on a list of genomes based on their rewards r and seeds s.
         The update rule for the new seeds follows the paper source [1/N * sum_j ((r_j - mean(r)) / stddev(r) * noise)]
@@ -100,7 +106,7 @@ class MomentumOptimizer(Optimizer):
     cutoff_seeds: int
 
     def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.9, cutoff_seeds = 2000):
-        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler)
+        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="MomentumOptimizer")
         self.momentum = momentum
         self.velocity_seeds = OrderedDict()
         # Having a cutoff keeps the size of the velocity array from growing unreasonably, which would create a lot of overhead during updates

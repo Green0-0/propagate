@@ -57,7 +57,8 @@ class SimpleTrainer:
                 "scheduler": optimizer.scheduler,
                 "total_steps": optimizer.total_steps,
                 "batch_size": dataset.batch_size,
-                "mirror": mirror
+                "mirror": mirror,
+                "optimizer": optimizer.optimizer_name,
             }
             wandb.init(project=self.wandb_project, config=config)
             wandb.define_metric("iteration_count")
