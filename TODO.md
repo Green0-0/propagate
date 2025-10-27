@@ -1,22 +1,18 @@
 # TODO, in order of priority
-- Check if the two existing backends work properly
-- Report length statistics on outputs, plot the rewards with matplotlib
-- Submit tests of 250 iterations for pop = 10, 20, 30
+- Look for and fix bugs (always). The all reduce operation for syncing gpus and the momentum optimizer need review. If the momentum optimizer can be made to work (I'm not sure why its diverging), add more optimizers; the optimizers empirically have zero overhead in terms of both memory and runtime.
+- **The model saving function needs to be tested; it should be possible to store a model using only its historical seeds**
+- Add new datasets; in particular, difficult math datasets, coding datasets, and logical reasoning datasets. Finish up the dataset merging code.
+- Create a trainer that trains using standard GA strategies (ie. crossover, etc) for comparison. Implement speciation based on the rewards. Possibly mix in gradients, https://arxiv.org/pdf/2408.07666?
+- Implement pass@k training https://arxiv.org/abs/2508.10751, length penalty, curriculum learning (modifying reward function based on performance)
 
-- Create a backend following the official implementation
-- Create a backend for 4 bit bnb (maybe apply modifications to the scales and zeropoints of the quant config, or dequant the whole model and keep a sep. copy on cpu)
-- Create a dataset for multiplication, AIME, GSM8K, GPQA
-- Write a backup method that backs up the genome by saving all historical seeds with their backprop weight, so that you can restore the model from the seeds
-- Write wandb integration, model saving at the end
-- Submit many tests
+- Create an optimized LoRA backend
 
-- Write a trainer that performs crossover for n generations, and takes gradient step at n (where n=gradient step counter)
-- Write a trainer that performs speciation and does gradient step per species every x generations when x != n (where x=species gradient step counter)
-- Submit many tests
+It should be possible to get an extremely optimized implementation like this: Create n loras equal to your population size. Split them amongst the vllm engines (TP has too much overhead). Have vllm load the loras. Get a reference to each lora and have a specific genome apply its update to that lora. Run every genome simultaneously with vllm's native lorarequest, which achieves the greatest batch utilization.
 
-- Add CMA-ES as tested in https://arxiv.org/abs/2507.04453v1
+- With an optimized LoRA backend, it becomes possible to train in any quant format (that supports LoRA). In particular, training in AWQ or the neuralmagic formats would be nice.
+- Additionally, it should be possible to natively train in a quant format, such as by perturbing the scales and centering.
+- Clean up code/add documentation
+- Colab/Kaggle notebooks
 
-- Write google colab notebook
-- Write kaggle notebook
-
-- Model merging strategies from https://arxiv.org/pdf/2408.07666
+- Add CMA-ES as tested in https://arxiv.org/abs/2507.04453v1. This will only work with LoRA (+ quant), as it will consume a ridiculous amount of memory otherwise.
+- Alignment datasets with RLHF/PPO/DPO to serve as regularizer (prevent overfitting on math) (note: not sure if this will work)

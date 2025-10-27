@@ -12,6 +12,8 @@ Note: Tested and works on windows with a 5090 (no multigpu). Look for a fork of 
 ## Replication results:
 Check https://wandb.ai/num110010/propagate_tests.
 
+[Learn what the code does](Docs.md)
+
 [What's being worked on](TODO.md)
 
 All work in this repository is based off the work of https://github.com/VsonicV/es-fine-tuning-paper. More papers may be implemented someday.
