@@ -9,7 +9,9 @@
 - The reward functions have been slightly adjusted from the official implementation to be more consistent
 
 ### generic_rewards.py
-- ``format_reward`` generates a reward for each token correctly placed in the output, where the output is formatted as {start_think_token}...{end_think_token}...{start_answer_token}...{end_answer_token} and any of the tokens may be excluded. You should not set a token if it is the suffix as the suffix is automatically preappended and not part of the output.
+- ``format_reward`` generates a reward for each token correctly placed in the output, where the output is formatted as:
+
+{start_think_token}...{end_think_token}...{start_answer_token}...{end_answer_token} and any of the tokens may be excluded. You should not set a token if it is the suffix as the suffix is automatically preappended and not part of the output.
 
 ### genome.py(``Genome``)
 - This represents a set of seeds that constitute an updated model, along with their associated weights and historical rewards.
