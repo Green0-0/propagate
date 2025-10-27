@@ -17,7 +17,7 @@ sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
 backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.85, Sampler=sampler)
 
-optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.0005, seed_weight=0.001, warmup_steps=25, scheduler="cosine")
+optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.0015, seed_weight=0.001, warmup_steps=10, scheduler="cosine")
 
 trainer = SimpleTrainer(
     population_size=12,
@@ -32,3 +32,5 @@ trainer = SimpleTrainer(
 trainer.train()
 
 trainer.save_model_seeds("saved_model/saved_model_seeds.json")
+
+print("#-- Training complete --#")
