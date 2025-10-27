@@ -1,16 +1,17 @@
 from typing import List
 from libs.backend import Backend
 from libs.dataset import Dataset
-from libs.genome import Genome, merge_genomes, save_genome_to_disk
+from libs.genome import Genome, save_genome_to_disk
+from libs.optimizers import Optimizer
 import time
 import wandb
 
 class SimpleTrainer:
     population_size: int
-    learning_rate: float
-    seed_weight: float
+    optimizer: Optimizer
     backend: Backend
     dataset: Dataset
+    mirror: bool
 
     genomes: List[Genome]
     historical_genome_steps : List[Genome]
@@ -19,20 +20,25 @@ class SimpleTrainer:
 
     wandb_project: str
 
-    def __init__(self, population_size: int, learning_rate: float, seed_weight: float, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
+    def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
-        print(f"#-- Population Size: {population_size}, Learning Rate: {learning_rate}, Weight: {seed_weight} --#")
-        self.learning_rate = learning_rate
-        self.seed_weight = seed_weight
+        print(f"#-- Population Size: {population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.seed_weight} --#")
+        self.optimizer = optimizer
         self.backend = backend
         self.dataset = dataset
         self.population_size = population_size
+        self.mirror = mirror
         if mirror:
             print("#-- Mirror mode enabled: population size doubled. --#")
-
+        
         self.genomes = [Genome() for _ in range(population_size)]
         for genome in self.genomes:
-            genome.mutate_seed(seed_weight)
+            genome.mutate_seed(optimizer.seed_weight)
+        if mirror:
+            mirrored_genomes = []
+            for genome in self.genomes:
+                mirrored_genomes.append(genome.get_mirrored())
+            self.genomes.extend(mirrored_genomes)
         self.historical_genome_steps = []
 
         self.iteration_count = 0
@@ -45,8 +51,11 @@ class SimpleTrainer:
             wandb.login()
             config = {
                 "population_size": population_size,
-                "learning_rate": learning_rate,
-                "seed_weight": seed_weight,
+                "learning_rate": optimizer.learning_rate,
+                "seed_weight": optimizer.seed_weight,
+                "warmup_steps": optimizer.warmup_steps,
+                "scheduler": optimizer.scheduler,
+                "total_steps": optimizer.total_steps,
                 "batch_size": dataset.batch_size,
                 "mirror": mirror
             }
@@ -61,7 +70,7 @@ class SimpleTrainer:
     def log_train_stats(self, genomes: List[Genome], time_taken: float):
         sum_scores = sum(genome.historical_rewards[-1] for genome in genomes)
         average = sum_scores / len(genomes)
-        stddev = (sum((genome.historical_rewards[-1] - average) ** 2 for genome in genomes) / len(genomes)) ** 0.5
+        stddev = (sum((genome.historical_rewards[-1] - average) ** 2 for genome in genomes) / (len(genomes))) ** 0.5
         average_response_length = sum([sum(len(response.split()) for response in genome.latest_outputs) for genome in genomes]) / len(genomes) / len(genomes[0].latest_outputs)
 
         best_genome = max(genomes, key=lambda g: g.historical_rewards[-1])
@@ -95,7 +104,7 @@ class SimpleTrainer:
 
     def log_val_stats(self, genome: Genome, time_taken: float):
         score = genome.historical_rewards[-1]
-        score_stddev = sum((genome.latest_rewards[i] - score) ** 2 for i in range(len(genome.latest_rewards))) / len(genome.latest_rewards)
+        score_stddev = (sum((genome.latest_rewards[i] - score) ** 2 for i in range(len(genome.latest_rewards))) / (len(genome.latest_rewards)-1)) ** 0.5
         average_response_length = sum(len(response.split()) for response in genome.latest_outputs) / len(genome.latest_outputs)
         sample_response = genome.latest_outputs[0]
         if self.wandb_project is not None and self.wandb_project != "":
@@ -111,40 +120,43 @@ class SimpleTrainer:
         if self.print_samples:
             print(f"#-- SAMPLE RESPONSE: --#\n{sample_response}\n")
 
-    def train_step(self):
-        self.iteration_count += 1
+    def train(self):
+        while self.iteration_count < self.optimizer.total_steps:
+            self.iteration_count += 1
 
-        start_time = time.time()
-        inputs = self.dataset.next()
-        self.backend.generate_outputs(self.genomes, self.dataset.suffix, inputs)
-
-        for genome in self.genomes:
-            self.dataset.score(genome)
-
-        end_time = time.time()
-
-        print(f"#-- Iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
-        self.log_train_stats(self.genomes, end_time - start_time)
-
-        new_genome = merge_genomes(self.genomes, self.learning_rate)
-        self.historical_genome_steps.append(new_genome)
-
-        if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
             start_time = time.time()
-            prompts = self.dataset.get_test_set()
-            self.backend.generate_outputs([new_genome], self.dataset.suffix, prompts)
-            self.dataset.score(new_genome)
+            inputs = self.dataset.next()
+            self.backend.generate_outputs(self.genomes, self.dataset.suffix, inputs)
+
+            for genome in self.genomes:
+                self.dataset.score(genome)
+
             end_time = time.time()
-            print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
-            self.log_val_stats(new_genome, end_time - start_time)
-        self.backend.update(new_genome)
-        
-        self.genomes = [Genome() for _ in range(self.population_size)]
-        mirrored_genomes = []
-        for genome in self.genomes:
-            genome.mutate_seed(self.seed_weight)
-            mirrored_genomes.append(genome)
-        self.genomes.extend(mirrored_genomes)
+
+            print(f"#-- Iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
+            self.log_train_stats(self.genomes, end_time - start_time)
+
+            new_genome = self.optimizer.get_step(self.genomes, self.iteration_count)
+            self.historical_genome_steps.append(new_genome)
+
+            if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
+                start_time = time.time()
+                prompts = self.dataset.get_test_set()
+                self.backend.generate_outputs([new_genome], self.dataset.suffix, prompts)
+                self.dataset.score(new_genome)
+                end_time = time.time()
+                print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
+                self.log_val_stats(new_genome, end_time - start_time)
+            self.backend.update(new_genome)
+            
+            self.genomes = [Genome() for _ in range(self.population_size)]
+            for genome in self.genomes:
+                genome.mutate_seed(self.optimizer.seed_weight)
+            if self.mirror:
+                mirrored_genomes = []
+                for genome in self.genomes:
+                    mirrored_genomes.append(genome.get_mirrored())
+                self.genomes.extend(mirrored_genomes)
 
     def save_model_to_disk(self, filepath: str):
         self.backend.save_weights_to_disk(filepath)
