@@ -10,17 +10,18 @@ import torch
 gc.collect()
 torch.cuda.empty_cache()
 
-dataset = load_countdown_dataset(batch_size=100)
+dataset = load_countdown_dataset(batch_size=300)
 dataset.generate_test_split(test_fraction=0.1, fold_index=1)
 
 sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
 backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.85, Sampler=sampler)
 
-optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.0015, seed_weight=0.001, warmup_steps=10, scheduler="cosine")
+optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.0015, seed_weight=0.001, warmup_steps=0, scheduler="none")
 
 trainer = SimpleTrainer(
-    population_size=12,
+    population_size=28,
+    mirror=False,
     optimizer=optimizer,
     backend=backend,
     dataset=dataset,

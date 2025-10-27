@@ -96,6 +96,7 @@ class SimpleTrainer:
                 f"train/time_seconds": time_taken,
                 f"train/average_response_length": average_response_length,
                 f"train/samples": sample_table,
+                f"train/learning_rate": self.optimizer.get_lr(self.iteration_count),
                 f"iteration_count": self.iteration_count
             }, step=self.iteration_count)
         print(f"#-- Stats: average: {average}, min: {worst_genome.historical_rewards[-1]}, max: {best_genome.historical_rewards[-1]}, stddev: {stddev}, average response length: {average_response_length} --#")
