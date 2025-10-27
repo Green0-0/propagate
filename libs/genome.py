@@ -219,15 +219,17 @@ def merge_genomes(genomes: List[Genome], learning_rate: float) -> Genome:
     merged.starting_index = len(merged.seeds)
     return merged
 
-def merge_genomes_max(genomes: List[Genome]) -> Genome:
+def merge_genomes_max(genomes: List[Genome], learning_rate: float) -> Genome:
     """Merge genomes by taking only the seed of the best performing genome.
 
     Args:
-        genomes (List[Genome]): The list of genomes to merge."""
+        genomes (List[Genome]): The list of genomes to merge.
+        learning_rate (float): The learning rate to use for the merge.
+    """
     best_genome = max(genomes, key=lambda g: g.historical_rewards[-1])
     merged = Genome()
     merged.seeds = best_genome.seeds.copy()
-    merged.seed_weights = best_genome.seed_weights.copy()
+    merged.seed_weights = [math.copysign(learning_rate, w) for w in best_genome.seed_weights]
     merged.historical_rewards = [float('-inf')] * len(merged.seeds)  # placeholder sentinel values for previous rewards
     merged.starting_index = len(merged.seeds)
     return merged
