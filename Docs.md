@@ -52,4 +52,5 @@ The standard training loop looks like this:
 5. Update with the optimizer, note that the optimizer returns a genome representing the base genome for the next generation:
 
 ``new_genome = self.optimizer.get_step(self.genomes, self.iteration_count)``
+
 6. Update the backend with this new genome (if you don't care about history), or use it as the base to generate new genomes. 

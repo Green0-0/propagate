@@ -1,5 +1,5 @@
 # TODO, in order of priority
-- Look for and fix bugs (always). The all reduce operation for syncing gpus and the momentum optimizer need review. If the momentum optimizer can be made to work (I'm not sure why its diverging), add more optimizers; the optimizers empirically have zero overhead in terms of both memory and runtime.
+- The all reduce operation for syncing gpus and the momentum optimizer need review. If the momentum optimizer can be made to work (I'm not sure why its diverging), add more optimizers; the optimizers empirically have zero overhead in terms of both memory and runtime.
 - **The model saving function needs to be tested; it should be possible to store a model using only its historical seeds**
 - Add new datasets; in particular, difficult math datasets, coding datasets, and logical reasoning datasets. Finish up the dataset merging code.
 - Create a trainer that trains using standard GA strategies (ie. crossover, etc) for comparison. Implement speciation based on the rewards. Possibly mix in gradients, https://arxiv.org/pdf/2408.07666?
