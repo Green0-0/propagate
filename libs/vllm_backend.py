@@ -1,3 +1,4 @@
+# Note: This script is largely the work of https://github.com/dibbla and has been modified from the repo at https://github.com/VsonicV/es-fine-tuning-paper/tree/main
 import math
 from typing import Dict, List
 from libs.backend import Backend
