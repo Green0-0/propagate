@@ -3,6 +3,7 @@ import re
 from datasets import load_dataset
 from libs.dataset import Dataset
 from libs.generic_rewards import basic_validator_reward, format_reward
+from transformers import AutoTokenizer
 
 def is_integer_string(s: str) -> bool:
     """Checks if a string represents a simple integer."""
@@ -49,7 +50,7 @@ def load_oreal_rl_prompts_dataset(batch_size: int = 200, split: str = "train") -
 if __name__ == "__main__":
     print("--- Testing OREAL-RL-Prompts Dataset ---")
     ds_oreal = load_oreal_rl_prompts_dataset(batch_size=3)
-    
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Base")
     if len(ds_oreal.pairs_train) > 0:
         print(f"Batch size: {ds_oreal.batch_size}")
         print(f"Suffix: {ds_oreal.suffix}")
@@ -64,6 +65,8 @@ if __name__ == "__main__":
             if is_integer_string(item["gold_answer"])
         )
         gold_answer = first_good_item["gold_answer"]
+
+        print("Prompt: ", tokenizer.apply_chat_template(first_prompt_gpt, tokenize=False, add_generation_prompt=True) + ds_oreal.suffix)
         
         print(f"First pair prompt: {first_prompt_gpt}")
         print(f"Corresponding Gold Answer: {gold_answer}")
