@@ -9,9 +9,9 @@ Note: Tested and works on windows with a 5090 (no multigpu). Look for a fork of 
 
 3. Login to wandb, and modify ``test.py`` to your needs. Then run the script!
 
-[Learn what the code does](Docs.md)
+[Documentation](Docs.md)
 
-[What's being worked on](TODO.md)
+[WIP](TODO.md)
 
 ## Replication results:
 Check https://wandb.ai/num110010/propagate_tests.

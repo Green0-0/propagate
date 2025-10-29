@@ -16,3 +16,4 @@ It should be possible to get an extremely optimized implementation like this: Cr
 
 - Add CMA-ES as tested in https://arxiv.org/abs/2507.04453v1. This will only work with LoRA (+ quant), as it will consume a ridiculous amount of memory otherwise.
 - Alignment datasets with RLHF/PPO/DPO to serve as regularizer (prevent overfitting on math) (note: not sure if this will work)
+- Multi-turn training
