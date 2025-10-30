@@ -27,7 +27,7 @@ try:
     #optimizer = MomentumOptimizer(total_steps=250, learning_rate=0.0005, seed_weight=0.001, warmup_steps=10, scheduler="cosine", momentum=0.5)
     #optimizer = TestMaxOptimizer(total_steps=250, learning_rate=0.0005, seed_weight=0.001, warmup_steps=0, scheduler="none")
     
-    trainer = SimpleTrainer(population_size=28,
+    trainer = SimpleTrainer(population_size=12,
                             mirror=False,
                             optimizer=optimizer,
                             backend=backend,

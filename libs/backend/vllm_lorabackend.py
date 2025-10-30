@@ -117,6 +117,11 @@ class VLLMBackendLoRA(Backend):
 
         def sig_handler(sig, frame):
             cleanup()
+            try:
+                if hasattr(self, "_lora_tmp_root") and os.path.exists(self._lora_tmp_root):
+                    shutil.rmtree(self._lora_tmp_root, ignore_errors=True)
+            except Exception as e:
+                print(f"#-- Error cleaning up temp LoRA dir: {e} --#")
             sys.exit(0)
 
         signal.signal(signal.SIGINT, sig_handler)
@@ -143,14 +148,18 @@ class VLLMBackendLoRA(Backend):
               if "lora_" in name:
                   param.data.zero_()
 
-        _lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
+        self._lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
+
+        max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
+        num_adapters_to_create = max(max_loras, max_loras_per_worker)
+
         lora_names = [f"lora_{i}" for i in range(population_size)]
-        lora_paths = {}
+        self.lora_paths = {} 
         for name in lora_names:
-            p = os.path.join(_lora_tmp_root, name)
+            p = os.path.join(self._lora_tmp_root, name) 
             os.makedirs(p, exist_ok=True)
             peft_model.save_pretrained(p, safe_serialization=True)
-            lora_paths[name] = p
+            self.lora_paths[name] = p
 
         # 3) Free the HF objects from memory
         try:
@@ -168,28 +177,17 @@ class VLLMBackendLoRA(Backend):
         dummy_prompt = [" "]
         for llm in self.inference_engines:
             for idx, name in enumerate(lora_names):
-                lora_req = LoRARequest(name, idx + 1, lora_paths[name])
+                lora_req = LoRARequest(name, idx + 1, self.lora_paths[name])
                 ray.get(llm.generate.remote(dummy_prompt, sp, lora_request=lora_req, use_tqdm=False))
-        for path in list(lora_paths.values()):
-            shutil.rmtree(path, ignore_errors=True)
-        shutil.rmtree(_lora_tmp_root, ignore_errors=True)
 
         print("#-- Locating LoRA adapters --#")
         ray.get(self.inference_engines[0].collective_rpc.remote("self_report_lora_params_sanity_check"))
         print("#-- Backend Initialized --#")
         pass
-    
-    def evaluate_countdown_handle(self, llm, prompts):
-        """Return a generation handle so we can schedule round-robin."""
-        start = time.time()
-        sampling_params = SamplingParams(
-            temperature=0.0,
-            seed=42,
-            max_tokens=1024,
-        )
-                
-        handle = llm.generate.remote(prompts, sampling_params, use_tqdm=self.use_tqdm)
-        return handle, start
+
+    def __del__(self):
+        if hasattr(self, "_lora_tmp_root") and os.path.exists(self._lora_tmp_root):
+            shutil.rmtree(self._lora_tmp_root, ignore_errors=True)
 
     def update(self, genome: Genome):
         """Update the model permanently with a genome as the source."""
@@ -240,11 +238,17 @@ class VLLMBackendLoRA(Backend):
             
             for local_idx, genome in enumerate(my_genomes):
                 local_lora_id = local_idx + 1
-                
                 local_lora_name = f"lora_{local_idx}"
-                
-                lora_req = LoRARequest(local_lora_name, local_lora_id, None)
-                
+
+                try:
+                    lora_path = self.lora_paths[local_lora_name]
+                except KeyError:
+                    print(f"Error: No preloaded path found for {local_lora_name}")
+                    print(f"Available paths: {list(self.lora_paths.keys())}")
+                    raise
+
+                lora_req = LoRARequest(local_lora_name, local_lora_id, lora_path)
+
                 h = llm.generate.remote(
                     prompts, 
                     self.sampler,
