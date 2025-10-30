@@ -172,5 +172,10 @@ class lora_model_parameters:
             lora_layer = self.lora_model.get_lora(mod)
             
             if lora_layer is not None:
-                yield f"{mod}.lora_a", lora_layer.lora_a
-                yield f"{mod}.lora_b", lora_layer.lora_b
+                for i, tensor in enumerate(lora_layer.lora_a):
+                    if tensor is not None:
+                        yield f"{mod}.{i}.lora_a", tensor
+                
+                for i, tensor in enumerate(lora_layer.lora_b):
+                    if tensor is not None:
+                        yield f"{mod}.{i}.lora_b", tensor
