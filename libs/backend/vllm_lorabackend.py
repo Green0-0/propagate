@@ -209,28 +209,21 @@ class VLLMBackendLoRA(Backend):
             if suffix is not None:
                 s = s + suffix
             prompts.append(s)
-        
+
         genome_chunks = np.array_split(genomes, self.world_size)
-        index_chunks = np.array_split(range(len(genomes)), self.world_size)
 
         if self.time_self:
             start_time = time.time()
             
         perturb_handles = []
-        engine_lora_ids = []
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
-            my_indices = index_chunks[eng_idx]
             
             if len(my_genomes) == 0:
-                engine_lora_ids.append([])
                 continue
                 
-            my_lora_ids = [idx + 1 for idx in my_indices]
-            engine_lora_ids.append(my_lora_ids)
-            
             h = llm.collective_rpc.remote(
-                "perturb_self_weights_multi", args=(my_genomes.tolist(), my_lora_ids)
+                "perturb_self_weights_multi", args=(my_genomes.tolist(),)
             )
             perturb_handles.append(h)
             
@@ -244,18 +237,17 @@ class VLLMBackendLoRA(Backend):
         
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
-            my_lora_ids = engine_lora_ids[eng_idx]
             
-            for i, genome in enumerate(my_genomes):
-                lora_id = my_lora_ids[i]
-                lora_index = lora_id - 1
-                lora_name = f"lora_{lora_index}"
+            for local_idx, genome in enumerate(my_genomes):
+                local_lora_id = local_idx + 1
                 
-                lora_req = LoRARequest(lora_name, lora_id, None)
+                local_lora_name = f"lora_{local_idx}"
+                
+                lora_req = LoRARequest(local_lora_name, local_lora_id, None)
                 
                 h = llm.generate.remote(
                     prompts, 
-                    self.sampler, 
+                    self.sampler,
                     lora_request=lora_req, 
                     use_tqdm=self.use_tqdm
                 )
@@ -285,11 +277,10 @@ class VLLMBackendLoRA(Backend):
         restore_handles = []
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
-            my_lora_ids = engine_lora_ids[eng_idx]
             
             if len(my_genomes) > 0:
                 h = llm.collective_rpc.remote(
-                    "restore_self_weights_multi", args=(my_genomes.tolist(), my_lora_ids)
+                    "restore_self_weights_multi", args=(my_genomes.tolist(),)
                 )
                 restore_handles.append(h)
         
