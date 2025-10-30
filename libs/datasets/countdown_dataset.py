@@ -2,8 +2,8 @@ import json
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib import response
-from libs.dataset import Dataset
-from libs.generic_rewards import format_reward
+from libs.datasets.dataset import Dataset
+from libs.datasets.generic_rewards import format_reward
 
 def answer_reward_function(response: str, numbers: List[int], target: int) -> float:
     answer_regex = r"<answer>(.*?)<\/answer>"
@@ -32,7 +32,7 @@ def answer_reward_function(response: str, numbers: List[int], target: int) -> fl
 
     
 def load_countdown_dataset(batch_size: int = 200) -> Dataset:
-    json_path = "libs/dataset_files/countdown.json"
+    json_path = "libs/datasets/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
         data = json.load(f)

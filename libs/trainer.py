@@ -1,6 +1,6 @@
 from typing import List
-from libs.backend import Backend
-from libs.dataset import Dataset
+from libs.backend.backend_abc import Backend
+from libs.datasets.dataset import Dataset
 from libs.genome import Genome, save_genome_to_disk
 from libs.optimizers import Optimizer
 import time

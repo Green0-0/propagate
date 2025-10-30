@@ -3,7 +3,7 @@
 ## Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 
-2. Install vllm and wandb: ``pip install vllm wandb datasets``
+2. Install vllm and wandb: ``pip install vllm wandb datasets peft``
 
 Note: Tested and works on windows with a 5090 (no multigpu). Look for a fork of https://github.com/SystemPanic/vllm-windows with the appropriate CUDA versions and remove ``distributed_executor_backend="ray",`` from ``vllm_backend.py``.
 

@@ -1,6 +1,7 @@
+# Note: This script is largely the work of https://github.com/dibbla and has been modified from the repo at https://github.com/VsonicV/es-fine-tuning-paper/tree/main
 import math
 from typing import Dict, List, Tuple
-from libs.backend import Backend
+from libs.backend.backend_abc import Backend
 
 import signal
 import sys
@@ -19,17 +20,11 @@ from libs.genome import Genome
 from ray.util import collective
 from torch.distributed import ReduceOp
 
-from peft import LoraConfig, get_peft_model
-from vllm.lora.request import LoRARequest
-import shutil
-import tempfile
-import gc
-
-class VLLMBackendLoRA(Backend):
+class VLLMBackend(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, population_size: int = 28, lora_rank: int = 16, max_loras: int = 7):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -63,11 +58,10 @@ class VLLMBackendLoRA(Backend):
         ]
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.sampler = Sampler
+        self.sampler = sampler
         self.use_tqdm = use_tqdm
         self.time_self = time_self
         self.world_size = NUM_GPUS
-        self.population_size = population_size
 
         print("#-- Spawning Training Actors with vLLM backends --#")
         self.inference_engines = [
@@ -78,15 +72,11 @@ class VLLMBackendLoRA(Backend):
             )(MyLLM).remote(
                 model=model_name,
                 enforce_eager=False,
-                worker_extension_cls="libs.vllm_utils.WorkerExtension",
+                worker_extension_cls="libs.backend.vllm_utils.WorkerExtension",
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
                 dtype="float16",
-                enable_prefix_caching=False,
-                enable_lora=True,
-                max_loras=max_loras,
-                max_lora_rank=lora_rank,
-                max_cpu_loras=self.population_size,
+                enable_prefix_caching=False
             )
             for strategy in strategies
         ]
@@ -121,74 +111,18 @@ class VLLMBackendLoRA(Backend):
 
         signal.signal(signal.SIGINT, sig_handler)
         signal.signal(signal.SIGTERM, sig_handler)
-
-        print("#-- Creating LoRA adapters --#")
-        default_target_modules = [
-            "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
-        ]
-
-        base_model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="cpu",
-        )
-        lora_cfg = LoraConfig(
-            r=lora_rank,
-            lora_alpha=2 * lora_rank,
-            target_modules=default_target_modules,
-        )
-        peft_model = get_peft_model(base_model, lora_cfg)
-
-        _lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
-        self.lora_names = [f"lora_{i}" for i in range(population_size)]
-        lora_paths = {}
-        for name in self.lora_names:
-            p = os.path.join(_lora_tmp_root, name)
-            os.makedirs(p, exist_ok=True)
-            peft_model.save_pretrained(p, safe_serialization=True)
-            lora_paths[name] = p
-
-        # 3) Free the HF objects from memory
-        try:
-            del peft_model
-        except Exception:
-            pass
-        try:
-            del base_model
-        except Exception:
-            pass
-        gc.collect()
-
-        print(f"#-- Preloading {len(self.lora_names)} LoRA adapters into {len(self.inference_engines)} engine(s) --#")
-        sp = SamplingParams(max_tokens=1, temperature=0.0)
-        dummy_prompt = [" "]
-        for llm in self.inference_engines:
-            for idx, name in enumerate(self.lora_names):
-                lora_req = LoRARequest(name, idx + 1, lora_paths[name])
-                ray.get(llm.generate.remote(dummy_prompt, sp, lora_request=lora_req, use_tqdm=False))
-        for path in list(lora_paths.values()):
-            shutil.rmtree(path, ignore_errors=True)
-        shutil.rmtree(_lora_tmp_root, ignore_errors=True)
-
-        self.report_lora_params(self.lora_names)
         print("#-- Backend Initialized --#")
         pass
     
     def evaluate_countdown_handle(self, llm, prompts):
         """Return a generation handle so we can schedule round-robin."""
         start = time.time()
-        sampling_params = SamplingParams(
-            temperature=0.0,
-            seed=42,
-            max_tokens=1024,
-        )
-                
-        handle = llm.generate.remote(prompts, sampling_params, use_tqdm=self.use_tqdm)
+        handle = llm.generate.remote(prompts, self.sampler, use_tqdm=self.use_tqdm)
         return handle, start
 
     def update(self, genome: Genome):
         """Update the model permanently with a genome as the source."""
-        ray.get([llm.collective_rpc.remote("perturb_self_weights", args=(genome,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome,)) for llm in self.inference_engines])
 
         if self.world_size > 1:
             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
@@ -265,7 +199,3 @@ class VLLMBackendLoRA(Backend):
             
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
-
-    def report_lora_params(self, expected_adapter_names: List[str] = None):
-        lora_params = ray.get(self.inference_engines[0].collective_rpc.remote("report_lora_params", args=(expected_adapter_names,)))
-        return lora_params

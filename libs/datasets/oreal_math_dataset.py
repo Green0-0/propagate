@@ -1,8 +1,8 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import re
 from datasets import load_dataset
-from libs.dataset import Dataset
-from libs.generic_rewards import basic_validator_reward, format_reward
+from libs.datasets.dataset import Dataset
+from libs.datasets.generic_rewards import basic_validator_reward, format_reward
 from transformers import AutoTokenizer
 
 def is_integer_string(s: str) -> bool:
