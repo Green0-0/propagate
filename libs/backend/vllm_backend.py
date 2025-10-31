@@ -74,8 +74,9 @@ class VLLMBackend(Backend):
                 enforce_eager=False,
                 worker_extension_cls="libs.backend.vllm_utils.WorkerExtension",
                 tensor_parallel_size=1,
-                distributed_executor_backend="ray",
+                #distributed_executor_backend="ray",
                 dtype="float16",
+                gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
                 enable_prefix_caching=False
             )
             for strategy in strategies
@@ -122,7 +123,7 @@ class VLLMBackend(Backend):
 
     def update(self, genome: Genome):
         """Update the model permanently with a genome as the source."""
-        ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perturb_self_weights", args=(genome,)) for llm in self.inference_engines])
 
         if self.world_size > 1:
             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])

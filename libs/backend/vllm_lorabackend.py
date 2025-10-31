@@ -1,5 +1,6 @@
 import math
 from typing import Dict, List, Tuple
+from uuid import uuid4
 from libs.backend.backend_abc import Backend
 
 import signal
@@ -44,6 +45,94 @@ class VLLMBackendLoRA(Backend):
                 os.environ["VLLM_RAY_PER_WORKER_GPUS"] = str(GPU_FRACTION_VLLM_WORKER)
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 super().__init__(*args, **kwargs)
+
+            def generate_multi_lora(self, prompts, sampling_params, lora_specs, use_tqdm=False):
+                from uuid import uuid4
+
+                try:
+                    from tqdm.auto import tqdm as _tqdm
+                    _tqdm_available = True
+                except Exception:
+                    _tqdm_available = False
+                    _tqdm = None
+
+                engine = self.llm_engine
+
+                # Map request_id -> (genome_idx, prompt_idx)
+                req_to_idx = {}
+                # Results buffer
+                results = [[None for _ in range(len(prompts))] for _ in range(len(lora_specs))]
+
+                # Track per-request generated token counts to compute accurate tok/s
+                prev_gen_tokens = {}  # rid -> last seen generated token count
+                total_generated_tokens = 0
+                completed = 0
+
+                # Enqueue all requests
+                for g_idx, spec in enumerate(lora_specs):
+                    lora_req = LoRARequest(spec["name"], spec["id"], spec["path"])
+                    for p_idx, prompt in enumerate(prompts):
+                        rid = f"{g_idx}:{p_idx}:{uuid4().hex}"
+                        engine.add_request(
+                            request_id=rid,
+                            prompt=prompt,
+                            params=sampling_params, 
+                            lora_request=lora_req,
+                        )
+                        req_to_idx[rid] = (g_idx, p_idx)
+                        prev_gen_tokens[rid] = 0
+
+                remaining = len(req_to_idx)
+                start_t = time.perf_counter()
+
+                pbar = None
+                if use_tqdm and _tqdm_available:
+                    pbar = _tqdm(total=remaining, desc="vLLM multi-LoRA", leave=True)
+
+                # Drive engine until all requests finish
+                while remaining > 0:
+                    request_outputs = engine.step()
+
+                    step_new_tokens = 0
+
+                    for ro in request_outputs:
+                        # Accumulate generated tokens incrementally for throughput stats
+                        out = ro.outputs[0] if (hasattr(ro, "outputs") and ro.outputs) else None
+                        if out is not None and hasattr(out, "token_ids"):
+                            curr = len(out.token_ids)  # generated tokens so far for this request
+                            prev = prev_gen_tokens.get(ro.request_id, 0)
+                            if curr > prev:
+                                step_new_tokens += (curr - prev)
+                                prev_gen_tokens[ro.request_id] = curr
+
+                        if getattr(ro, "finished", False):
+                            g_idx, p_idx = req_to_idx[ro.request_id]
+                            text = out.text if (out is not None and hasattr(out, "text")) else ""
+                            results[g_idx][p_idx] = text
+
+                            remaining -= 1
+                            completed += 1
+                            if pbar is not None:
+                                pbar.update(1)
+
+                    # Update running throughput stats
+                    if step_new_tokens > 0:
+                        total_generated_tokens += step_new_tokens
+                        if pbar is not None:
+                            elapsed = max(1e-6, time.perf_counter() - start_t)
+                            tok_s = total_generated_tokens / elapsed
+                            req_s = completed / elapsed
+                            pbar.set_postfix_str(f"tok/s={tok_s:.1f}, req/s={req_s:.2f}, gen_tok={total_generated_tokens}")
+
+                if pbar is not None:
+                    # Final stats update
+                    elapsed = max(1e-6, time.perf_counter() - start_t)
+                    tok_s = total_generated_tokens / elapsed
+                    req_s = completed / elapsed
+                    pbar.set_postfix_str(f"tok/s={tok_s:.1f}, req/s={req_s:.2f}, gen_tok={total_generated_tokens}")
+                    pbar.close()
+
+                return results
         #-----------------------------------------------------#
 
         print("#-- Initializing Backend [VLLMBackendTP] --#")
@@ -67,7 +156,6 @@ class VLLMBackendLoRA(Backend):
         self.use_tqdm = use_tqdm
         self.time_self = time_self
         self.world_size = NUM_GPUS
-        self.population_size = population_size
 
         print("#-- Spawning Training Actors with vLLM backends --#")
         self.inference_engines = [
@@ -83,6 +171,7 @@ class VLLMBackendLoRA(Backend):
                 #distributed_executor_backend="ray",
                 dtype="float16",
                 enable_prefix_caching=False,
+                gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
                 enable_lora=True,
                 max_loras=max_loras,
                 max_lora_rank=lora_rank,
@@ -153,7 +242,7 @@ class VLLMBackendLoRA(Backend):
         max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
         num_adapters_to_create = max(max_loras, max_loras_per_worker)
 
-        lora_names = [f"lora_{i}" for i in range(population_size)]
+        lora_names = [f"lora_{i}" for i in range(num_adapters_to_create)]
         self.lora_paths = {} 
         for name in lora_names:
             p = os.path.join(self._lora_tmp_root, name) 
@@ -191,7 +280,7 @@ class VLLMBackendLoRA(Backend):
 
     def update(self, genome: Genome):
         """Update the model permanently with a genome as the source."""
-        ray.get([llm.collective_rpc.remote("perturb_self_weights", args=(genome,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome,)) for llm in self.inference_engines])
 
         if self.world_size > 1:
             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
@@ -230,53 +319,44 @@ class VLLMBackendLoRA(Backend):
             print(f"#-- All adapters perturbed in {time.time() - start_time:.2f}s --#")
             gen_start_time = time.time()
 
-        handle_to_genome = {}
         all_gen_handles = []
-        
+        genome_chunks_kept = []  # to map results back
+
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
-            
-            for local_idx, genome in enumerate(my_genomes):
+            if len(my_genomes) == 0:
+                continue
+
+            lora_specs = []
+            for local_idx, _genome in enumerate(my_genomes):
                 local_lora_id = local_idx + 1
                 local_lora_name = f"lora_{local_idx}"
-
                 try:
                     lora_path = self.lora_paths[local_lora_name]
                 except KeyError:
                     print(f"Error: No preloaded path found for {local_lora_name}")
                     print(f"Available paths: {list(self.lora_paths.keys())}")
                     raise
+                lora_specs.append({"name": local_lora_name, "id": local_lora_id, "path": lora_path})
 
-                lora_req = LoRARequest(local_lora_name, local_lora_id, lora_path)
+            h = llm.generate_multi_lora.remote(
+                prompts,
+                self.sampler,
+                lora_specs,
+                self.use_tqdm
+            )
+            all_gen_handles.append(h)
+            genome_chunks_kept.append(my_genomes)
 
-                h = llm.generate.remote(
-                    prompts, 
-                    self.sampler,
-                    lora_request=lora_req, 
-                    use_tqdm=self.use_tqdm
-                )
-                
-                handle_to_genome[h] = genome
-                all_gen_handles.append(h)
-
-        done_handles, _ = ray.wait(all_gen_handles, num_returns=len(all_gen_handles))
+        all_outputs = ray.get(all_gen_handles)
         
         if self.time_self:
             end_time = time.time()
             print(f"#-- All genome outputs generated in {end_time - gen_start_time:.2f} seconds --#")
 
-        for h in done_handles:
-            outputs = ray.get(h)
-            genome = handle_to_genome[h]
-            
-            genome.latest_outputs = [
-                o.outputs[0].text if (
-                    hasattr(o, "outputs") and 
-                    len(o.outputs) > 0 and 
-                    hasattr(o.outputs[0], "text")
-                ) else "" 
-                for o in outputs
-            ]
+        for chunk_results, genomes_in_chunk in zip(all_outputs, genome_chunks_kept):
+            for genome, outputs_for_genome in zip(genomes_in_chunk, chunk_results):
+                genome.latest_outputs = outputs_for_genome
         
         restore_handles = []
         for eng_idx, llm in enumerate(self.inference_engines):

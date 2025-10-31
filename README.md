@@ -1,5 +1,7 @@
 # ~~Back~~propagate: Train LLMs with Evolutionary Strategies!
 
+Warning: Because of the LoRA backend update, this is currently not fully functional.
+
 ## Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 
