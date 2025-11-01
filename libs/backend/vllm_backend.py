@@ -74,7 +74,7 @@ class VLLMBackend(Backend):
                 enforce_eager=False,
                 worker_extension_cls="libs.backend.vllm_utils.WorkerExtension",
                 tensor_parallel_size=1,
-                #distributed_executor_backend="ray",
+                distributed_executor_backend="ray",
                 dtype="float16",
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
                 enable_prefix_caching=False
