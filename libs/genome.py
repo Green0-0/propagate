@@ -117,30 +117,6 @@ class Genome:
         mirrored.seed_weights[-1] = -mirrored.seed_weights[-1]
         return mirrored
     
-    @torch.inference_mode()
-    def update_tensor(self, model):
-        """Update the named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
-        for seed, weight in zip(self.seeds, self.seed_weights):
-            for _, p in model.named_parameters():
-                gen = torch.Generator(device=p.device)
-                gen.manual_seed(int(seed))
-                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
-                noise.mul_(weight)
-                p.data.add_(noise)
-                del noise
-    
-    @torch.inference_mode()
-    def restore_tensor(self, model):
-        """Restore the original named parameters using the given seeds and weights. Modifications are done in-place, but one tensor must be allocated for the noise."""
-        for seed, weight in zip(self.seeds, self.seed_weights):
-            for _, p in model.named_parameters():
-                gen = torch.Generator(device=p.device)
-                gen.manual_seed(int(seed))
-                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
-                noise.mul_(weight)
-                p.data.sub_(noise)
-                del noise
-    
 def difference_rewards(A: Genome, B: Genome) -> float:
     """Calculate the difference in rewards attained on the outputs within the latest generation between two genomes.
 

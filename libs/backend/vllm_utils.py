@@ -1,15 +1,10 @@
 import gc
 import re
 import time
-from typing import Dict, List, Optional
-
-from click import Tuple
 import torch
-
-from libs.genome import Genome
-
-from libs.genome import Genome
 from ray.util import collective
+
+from libs.genome import Genome
 
 class WorkerExtension:
     def init_collective_group(self, world_size: int, rank: int, backend: str = "nccl"):
@@ -55,16 +50,30 @@ class WorkerExtension:
     def __del__(self):
         self.destroy_collective_group()
 
+    @torch.inference_mode()
     def perturb_self_weights(self, genome: Genome):
-        genome.update_tensor(model=self.model_runner.model)
-
+        for seed, weight in zip(genome.seeds, genome.seed_weights):
+            gen = torch.Generator(device=p.device)
+            gen.manual_seed(int(seed))
+            for _, p in self.model_runner.model.named_parameters():
+                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
+                noise.mul_(weight)
+                p.data.add_(noise)
+                del noise
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
+    @torch.inference_mode()
     def restore_self_weights(self, genome: Genome):
-        genome.restore_tensor(model=self.model_runner.model)
-
+        for seed, weight in zip(genome.seeds, genome.seed_weights):
+            gen = torch.Generator(device=p.device)
+            gen.manual_seed(int(seed))
+            for _, p in self.model_runner.model.named_parameters():
+                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
+                noise.mul_(weight)
+                p.data.sub_(noise)
+                del noise
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()

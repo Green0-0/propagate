@@ -30,7 +30,7 @@ class VLLMBackendLoRA(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, population_size: int = 28, lora_rank: int = 16, max_loras: int = 7):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, lora_rank: int = 16):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -156,6 +156,7 @@ class VLLMBackendLoRA(Backend):
         self.use_tqdm = use_tqdm
         self.time_self = time_self
         self.world_size = NUM_GPUS
+        max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
 
         print("#-- Spawning Training Actors with vLLM backends --#")
         self.inference_engines = [
@@ -166,14 +167,14 @@ class VLLMBackendLoRA(Backend):
             )(MyLLM).remote(
                 model=model_name,
                 enforce_eager=False,
-                worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
+                worker_extension_cls="libs.backend.vllm_exp_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
                 #distributed_executor_backend="ray",
                 dtype="float16",
                 enable_prefix_caching=False,
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
                 enable_lora=True,
-                max_loras=max_loras,
+                max_loras=max_loras_per_worker,
                 max_lora_rank=lora_rank,
                 max_cpu_loras=1000,
             )
@@ -239,10 +240,7 @@ class VLLMBackendLoRA(Backend):
 
         self._lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
 
-        max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
-        num_adapters_to_create = max(max_loras, max_loras_per_worker)
-
-        lora_names = [f"lora_{i}" for i in range(num_adapters_to_create)]
+        lora_names = [f"lora_{i}" for i in range(max_loras_per_worker)]
         self.lora_paths = {} 
         for name in lora_names:
             p = os.path.join(self._lora_tmp_root, name) 
