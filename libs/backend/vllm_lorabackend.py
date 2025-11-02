@@ -169,9 +169,9 @@ class VLLMBackendLoRA(Backend):
             )(MyLLM).remote(
                 model=model_name,
                 enforce_eager=False,
-                worker_extension_cls="libs.backend.vllm_slow_lorautils.WorkerExtension",
+                worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
-                distributed_executor_backend="ray",
+                #distributed_executor_backend="ray",
                 dtype="float16",
                 enable_prefix_caching=False,
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
@@ -283,13 +283,12 @@ class VLLMBackendLoRA(Backend):
         """Update the model permanently with a genome as the source."""
         ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome,)) for llm in self.inference_engines])
 
-        if self.world_size > 1:
-            ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
         if len(genomes) > self.population_size:
             raise ValueError(f"Population size {len(genomes)} exceeds max population size {self.population_size} for this backend.")
-
+        
         prompts = []
         for i in inputs:
             s = self.tokenizer.apply_chat_template(
@@ -308,6 +307,7 @@ class VLLMBackendLoRA(Backend):
         
         perturb_handles = []
         for eng_idx, llm in enumerate(self.inference_engines):
+            #ray.get(llm.collective_rpc.remote("inspect_lora", args=("PRE PERTURB INSPECTION", )))
             my_genomes = genome_chunks[eng_idx]
             
             if len(my_genomes) == 0:
@@ -317,7 +317,6 @@ class VLLMBackendLoRA(Backend):
                 "perturb_self_weights_multi", args=(my_genomes.tolist(),)
             )
             perturb_handles.append(h)
-            
         ray.get(perturb_handles)
         if self.time_self:
             print(f"#-- All adapters perturbed in {time.time() - start_time:.2f}s --#")
@@ -352,6 +351,7 @@ class VLLMBackendLoRA(Backend):
             all_gen_handles.append(h)
             genome_chunks_kept.append(my_genomes)
 
+        #ray.get(llm.collective_rpc.remote("inspect_lora", args=("POST PERTURB INSPECTION",)))
         all_outputs = ray.get(all_gen_handles)
 
         if self.time_self:
@@ -373,6 +373,8 @@ class VLLMBackendLoRA(Backend):
                 restore_handles.append(h)
         
         ray.get(restore_handles)
+        ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
+        #ray.get(llm.collective_rpc.remote("inspect_lora", args=("POST RESTORE INSPECTION", )))
         if self.time_self:
             print(f"#-- All adapters restored in {time.time() - end_time:.2f}s --#")
 

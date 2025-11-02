@@ -107,22 +107,18 @@ class WorkerExtension:
 
         return gpu_tensors
 
-    def inspect_lora(self, msg: str, lora_id: int = 1):
+    def inspect_lora(self, msg: str):
         """
         Inspect one adapter using the same adapter_manager/modules that
         self_report_lora_params_sanity_check references. Safe against
         missing modules or None returns from get_lora().
         """
         output = ""
-        output += f"#-- inspect_lora called: {msg} on id {lora_id} --#\n"
+        output += f"#-- inspect_lora called: {msg} --#\n"
         # follow the same lookup pattern as your sanity check
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
-        adapters = adapter_manager.list_adapters()
-        modules = adapter_manager.modules
 
-        lora_model = adapters.get(lora_id) if isinstance(adapters, dict) else adapter_manager.get_adapter(lora_id)
-        output += f"Inspecting adapter id {lora_id}. Modules to check: {len(modules)} (showing up to 50)\n"
         active_adapters = adapter_manager._active_adapters
         output += f"Active adapters: {list(active_adapters.keys())}\n"
         for aid, adapter in active_adapters.items():
@@ -162,20 +158,65 @@ class WorkerExtension:
         print(f"#-- Worker {rank} collective group initialized. --#")
         return True
 
-    def perform_all_reduce_sync(self):
-        """Performs AllReduce to average weights across all workers."""
-        if not collective.is_group_initialized(self.collective_group_name) or self.world_size <= 1:
-            return True
-            
-        with torch.no_grad():
-            for name, p in self.model_runner.model.named_parameters():
-                if p.requires_grad:
-                    collective.allreduce(
-                        p.data, 
-                        group_name=self.collective_group_name
-                    )
-                    p.data.div_(self.world_size)
-        
+    def _iter_stacked_lora_tensors(self):
+        """
+        Iterate all stacked LoRA tensors that vLLM keeps per module.
+        Yields (mod_name, sub_idx, a_stacked, b_stacked) where a_stacked/b_stacked
+        are tensors of shape [num_adapters, ...].
+        """
+        lora_manager = self.model_runner.lora_manager
+        adapter_manager = lora_manager._adapter_manager
+        for mod_name, mod in adapter_manager.modules.items():
+            a_list = getattr(mod, "lora_a_stacked", None)
+            b_list = getattr(mod, "lora_b_stacked", None)
+            if not isinstance(a_list, (list, tuple)) or not isinstance(b_list, (list, tuple)):
+                continue
+            for i in range(len(a_list)):
+                a_stacked = a_list[i]
+                b_stacked = b_list[i]
+                if isinstance(a_stacked, torch.Tensor) and isinstance(b_stacked, torch.Tensor):
+                    yield mod_name, i, a_stacked, b_stacked
+
+    @torch.inference_mode()
+    def perform_global_average_lora(self):
+        """
+        Make every adapter slot identical to the global mean across:
+          - all local adapter slots (intra-worker), and
+          - all workers (inter-worker), if a Ray collective group exists.
+
+        This ensures that after calling this, every slot on every rank has the
+        same LoRA weights.
+        """
+        # Determine if we can do cross-worker reduction.
+        do_collective = (
+            hasattr(self, "collective_group_name")
+            and collective.is_group_initialized(self.collective_group_name)
+        )
+        world_size = getattr(self, "world_size", 1)
+        if world_size is None or world_size < 1:
+            world_size = 1
+
+        for _, _, a_stacked, b_stacked in self._iter_stacked_lora_tensors():
+            # a_stacked, b_stacked shapes: [num_slots, ...]
+            num_slots = a_stacked.shape[0]
+
+            sum_a = a_stacked.sum(dim=0)
+            sum_b = b_stacked.sum(dim=0)
+            cnt = torch.tensor(float(num_slots), device=sum_a.device, dtype=sum_a.dtype)
+
+            if do_collective and world_size >= 1:
+                # Sum across ranks
+                collective.allreduce(sum_a, group_name=self.collective_group_name)
+                collective.allreduce(sum_b, group_name=self.collective_group_name)
+                collective.allreduce(cnt, group_name=self.collective_group_name)
+
+            mean_a = (sum_a / cnt).to(dtype=a_stacked.dtype)
+            mean_b = (sum_b / cnt).to(dtype=b_stacked.dtype)
+
+            # Broadcast the global mean back into every slot
+            a_stacked[:] = mean_a
+            b_stacked[:] = mean_b
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         return True
@@ -212,7 +253,7 @@ class WorkerExtension:
             weights = self._collect_gpu_lora_tensors(aid)
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 rand_counter = 0
-                for name, (lora_a, lora_b) in weights.items():
+                for name, (lora_a, lora_b) in sorted(weights.items()):
 
                     gen = torch.Generator(device=lora_a.device)
                     gen.manual_seed(int(seed) + rand_counter)
@@ -256,7 +297,7 @@ class WorkerExtension:
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 rand_counter = 0
                 
-                for _, (lora_a, lora_b) in weights.items():
+                for _, (lora_a, lora_b) in sorted(weights.items()):
                     gen = torch.Generator(device=lora_a.device)
                     gen.manual_seed(int(seed) + rand_counter)
                     rand_counter += 1
@@ -301,7 +342,7 @@ class WorkerExtension:
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 rand_counter = 0
 
-                for _, (lora_a, lora_b) in weights.items():
+                for _, (lora_a, lora_b) in sorted(weights.items()):
                     gen = torch.Generator(device=lora_a.device)
                     gen.manual_seed(int(seed) + rand_counter)
                     rand_counter += 1
