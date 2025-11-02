@@ -30,7 +30,7 @@ class VLLMBackendLoRA(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, lora_rank: int = 16):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -171,7 +171,7 @@ class VLLMBackendLoRA(Backend):
                 enforce_eager=False,
                 worker_extension_cls="libs.backend.vllm_slow_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
-                #distributed_executor_backend="ray",
+                distributed_executor_backend="ray",
                 dtype="float16",
                 enable_prefix_caching=False,
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
@@ -179,6 +179,7 @@ class VLLMBackendLoRA(Backend):
                 max_loras=max_loras_per_worker,
                 max_lora_rank=lora_rank,
                 max_cpu_loras=1000,
+                max_model_len=max_model_len,
             )
             for strategy in strategies
         ]

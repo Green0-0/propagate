@@ -24,7 +24,7 @@ class VLLMBackend(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -77,7 +77,8 @@ class VLLMBackend(Backend):
                 distributed_executor_backend="ray",
                 dtype="float16",
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
-                enable_prefix_caching=False
+                enable_prefix_caching=False,
+                max_model_len=max_model_len
             )
             for strategy in strategies
         ]

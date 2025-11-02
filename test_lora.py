@@ -14,7 +14,7 @@ gc.collect()
 torch.cuda.empty_cache()
 
 try:
-    dataset = load_countdown_dataset(batch_size=50)
+    dataset = load_countdown_dataset(batch_size=300)
     #dataset = load_oreal_rl_prompts_dataset(batch_size=300)
     dataset.generate_test_split(test_fraction=0.1, fold_index=1)
 
