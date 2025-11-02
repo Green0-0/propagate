@@ -139,7 +139,8 @@ class VLLMBackendLoRA(Backend):
         print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
         ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
 
-        pgs = [placement_group([{"GPU": 1, "CPU": CPUS_PER_GPU}]) for _ in range(NUM_GPUS)]
+        pgs = [placement_group([{"GPU": 1, "CPU"
+        "": CPUS_PER_GPU}]) for _ in range(NUM_GPUS)]
         ray.get([pg.ready() for pg in pgs])
 
         strategies = [
@@ -156,6 +157,7 @@ class VLLMBackendLoRA(Backend):
         self.use_tqdm = use_tqdm
         self.time_self = time_self
         self.world_size = NUM_GPUS
+        self.population_size = population_size
         max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
 
         print("#-- Spawning Training Actors with vLLM backends --#")
@@ -167,9 +169,9 @@ class VLLMBackendLoRA(Backend):
             )(MyLLM).remote(
                 model=model_name,
                 enforce_eager=False,
-                worker_extension_cls="libs.backend.vllm_exp_lorautils.WorkerExtension",
+                worker_extension_cls="libs.backend.vllm_slow_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
-                distributed_executor_backend="ray",
+                #distributed_executor_backend="ray",
                 dtype="float16",
                 enable_prefix_caching=False,
                 gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
@@ -284,6 +286,9 @@ class VLLMBackendLoRA(Backend):
             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
+        if len(genomes) > self.population_size:
+            raise ValueError(f"Population size {len(genomes)} exceeds max population size {self.population_size} for this backend.")
+
         prompts = []
         for i in inputs:
             s = self.tokenizer.apply_chat_template(
@@ -299,7 +304,7 @@ class VLLMBackendLoRA(Backend):
 
         if self.time_self:
             start_time = time.time()
-            
+        
         perturb_handles = []
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
@@ -347,7 +352,7 @@ class VLLMBackendLoRA(Backend):
             genome_chunks_kept.append(my_genomes)
 
         all_outputs = ray.get(all_gen_handles)
-        
+
         if self.time_self:
             end_time = time.time()
             print(f"#-- All genome outputs generated in {end_time - gen_start_time:.2f} seconds --#")
@@ -369,6 +374,6 @@ class VLLMBackendLoRA(Backend):
         ray.get(restore_handles)
         if self.time_self:
             print(f"#-- All adapters restored in {time.time() - end_time:.2f}s --#")
-            
+
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))

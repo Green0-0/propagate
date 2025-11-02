@@ -9,6 +9,90 @@ from ray.util import collective
 from libs.genome import Genome
 
 class WorkerExtension:
+    def self_report_lora_params_sanity_check(self):
+        print("#-- LoRA Parameters Sanity Check --#")
+        lora_manager = self.model_runner.lora_manager
+        adapter_manager = self.model_runner.lora_manager._adapter_manager
+        if lora_manager is None or adapter_manager is None:
+            raise RuntimeError("LoRA manager or adapter manager not found in model runner.")
+        adapters_dict = adapter_manager.list_adapters()
+        if not adapters_dict:
+            raise RuntimeError("No adapters found in adapter manager.")
+        modules = adapter_manager.modules
+        if not modules:
+            raise RuntimeError("No modules found in adapter manager.")
+        
+        adapters_found = []
+        lora_modules_found = []
+        lora_tensors_found = []
+        for aid, lora_model in sorted(adapters_dict.items(), key=lambda x: x[0]):
+            adapters_found.append(aid)
+            for mod in modules:
+                lora = lora_model.get_lora(mod)
+                lora_modules_found.append(mod)
+                lora_tensors_found.append((str(lora.lora_a)[0:20], str(lora.lora_b)[0:20]))
+        print(f"#-- {len(adapters_found)} LoRA Adapters Found: {adapters_found} --#")
+        print(f"#-- {len(lora_modules_found)} LoRA Modules Found, ie. {lora_modules_found[0]} --#")
+        print(f"#-- {len(lora_tensors_found)} LoRA Tensors Found, ie. {lora_tensors_found[0]} --#")
+
+    def inspect_lora(self, msg: str, lora_id: int = 1):
+        """
+        Inspect one adapter using the same adapter_manager/modules that
+        self_report_lora_params_sanity_check references. Safe against
+        missing modules or None returns from get_lora().
+        """
+        output = ""
+        output += f"#-- inspect_lora called: {msg} on id {lora_id} --#\n"
+        # follow the same lookup pattern as your sanity check
+        lora_manager = getattr(self.model_runner, "lora_manager", None)
+        adapter_manager = getattr(lora_manager, "_adapter_manager", None) if lora_manager is not None else None
+        adapters = adapter_manager.list_adapters()
+        modules = adapter_manager.modules
+
+        lora_model = adapters.get(lora_id) if isinstance(adapters, dict) else adapter_manager.get_adapter(lora_id)
+        output += f"Inspecting adapter id {lora_id}. Modules to check: {len(modules)} (showing up to 50)\n"
+        for mod in sorted(modules):
+            l = None
+            try:
+                l = lora_model.get_lora(mod)
+            except Exception as e:
+                output += (f"    {mod} error retrieving LoRA: {e}\n")
+                continue
+
+            if l is None:
+                output += (f"    {mod} LoRA is None\n")
+                continue
+
+            # support attribute name variations: lora_a/lora_b or a/b
+            a_list = l.lora_a
+            b_list = l.lora_b
+
+            # print info for each entry in the a/b lists (usually small)
+            for idx, (ta, tb) in enumerate(zip(a_list, b_list)):
+                try:
+                    if isinstance(ta, torch.Tensor):
+                        a_dev = ta.device
+                        a_sum = float(ta.detach().float().sum())
+                    else:
+                        a_dev = type(ta)
+                        a_sum = None
+
+                    if isinstance(tb, torch.Tensor):
+                        b_dev = tb.device
+                        b_sum = float(tb.detach().float().sum())
+                    else:
+                        b_dev = type(tb)
+                        b_sum = None
+
+                    output += (f"    {mod}[{idx}] a: device={a_dev} sum={a_sum}  |  b: device={b_dev} sum={b_sum}\n")
+                except Exception as e:
+                    output += (f"    {mod}[{idx}] error inspecting tensors: {e}\n")
+                if idx > 3:
+                    break
+            break
+        output += ("#-- inspect_lora done --#\n")
+        print(output)
+
     def init_collective_group(self, world_size: int, rank: int, backend: str = "nccl"):
         self.collective_group_name = "weight_sync_group"
         self.world_size = world_size
@@ -62,32 +146,6 @@ class WorkerExtension:
             torch.cuda.empty_cache()
         time.sleep(0.1)
         return True
-    
-    def self_report_lora_params_sanity_check(self):
-        print("#-- LoRA Parameters Sanity Check --#")
-        lora_manager = self.model_runner.lora_manager
-        adapter_manager = self.model_runner.lora_manager._adapter_manager
-        if lora_manager is None or adapter_manager is None:
-            raise RuntimeError("LoRA manager or adapter manager not found in model runner.")
-        adapters_dict = adapter_manager.list_adapters()
-        if not adapters_dict:
-            raise RuntimeError("No adapters found in adapter manager.")
-        modules = adapter_manager.modules
-        if not modules:
-            raise RuntimeError("No modules found in adapter manager.")
-        
-        adapters_found = []
-        lora_modules_found = []
-        lora_tensors_found = []
-        for aid, lora_model in sorted(adapters_dict.items(), key=lambda x: x[0]):
-            adapters_found.append(aid)
-            for mod in modules:
-                lora = lora_model.get_lora(mod)
-                lora_modules_found.append(mod)
-                lora_tensors_found.append((str(lora.lora_a)[0:20], str(lora.lora_b)[0:20]))
-        print(f"#-- {len(adapters_found)} LoRA Adapters Found: {adapters_found} --#")
-        print(f"#-- {len(lora_modules_found)} LoRA Modules Found, ie. {lora_modules_found[0]} --#")
-        print(f"#-- {len(lora_tensors_found)} LoRA Tensors Found, ie. {lora_tensors_found[0]} --#")
 
     # --- lazy init since Ray may not call __init__ on this extension ---
     def _init_lora_groups(self):
@@ -190,18 +248,15 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def perturb_self_weights_multi(self, genomes: List[Genome]):
-        """
-        Perturb multiple adapters (one per genome) efficiently.
-        Expects vLLM LoRA adapter ids to be 1..N for the chunk assigned to this engine.
-        """
         if not genomes:
             return True
         if not hasattr(self, "_lora_groups_cache"):
             self._init_lora_groups()
 
-        # Map each genome to its local adapter id (local_idx + 1)
         lora_ids = [i + 1 for i in range(len(genomes))]
         self._ensure_lora_groups(lora_ids)
+
+        adapter_manager = self._get_adapter_manager()
 
         for local_idx, genome in enumerate(genomes):
             lora_id = local_idx + 1
@@ -217,13 +272,28 @@ class WorkerExtension:
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 self._rng.manual_seed(int(seed))
                 for g in groups.values():
-                    # Fill tmp in-place using 'out=' to avoid allocation
                     torch.randn(g["tmp"].shape, generator=self._rng, out=g["tmp"])
                     g["gpu"].add_(g["tmp"], alpha=float(weight))
 
-            # Copy back to CPU pinned buffers
+            # Copy all dtype groups back to CPU (do this for *all* groups first)
             for g in groups.values():
                 g["cpu"].copy_(g["gpu"], non_blocking=True)
+
+            # Now, perform one activate/deactivate step (if needed) per adapter,
+            # not once per dtype. This avoids re-creating adapter mid-write.
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            try:
+                if hasattr(adapter_manager, "deactivate_adapter"):
+                    adapter_manager.deactivate_adapter(lora_id)
+                elif hasattr(adapter_manager, "remove_adapter"):
+                    adapter_manager.remove_adapter(lora_id)
+            except Exception as e:
+                raise
+            try:
+                ok = adapter_manager.activate_adapter(lora_id)
+            except Exception as e:
+                raise
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -231,9 +301,6 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def restore_self_weights_multi(self, genomes: List[Genome]):
-        """
-        Restore multiple adapters (inverse of perturb) efficiently.
-        """
         if not genomes:
             return True
         if not hasattr(self, "_lora_groups_cache"):
@@ -241,6 +308,8 @@ class WorkerExtension:
 
         lora_ids = [i + 1 for i in range(len(genomes))]
         self._ensure_lora_groups(lora_ids)
+
+        adapter_manager = self._get_adapter_manager()
 
         for local_idx, genome in enumerate(genomes):
             lora_id = local_idx + 1
@@ -257,24 +326,37 @@ class WorkerExtension:
                     torch.randn(g["tmp"].shape, generator=self._rng, out=g["tmp"])
                     g["gpu"].add_(g["tmp"], alpha=-float(weight))  # subtract
 
+            # copy back all groups
             for g in groups.values():
                 g["cpu"].copy_(g["gpu"], non_blocking=True)
+
+            # single activate/deactivate step (if needed)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            try:
+                if hasattr(adapter_manager, "deactivate_adapter"):
+                    adapter_manager.deactivate_adapter(lora_id)
+                elif hasattr(adapter_manager, "remove_adapter"):
+                    adapter_manager.remove_adapter(lora_id)
+            except Exception as e:
+                raise
+            try:
+                adapter_manager.activate_adapter(lora_id)
+            except Exception as e:
+                raise
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         return True
 
+
     @torch.inference_mode()
     def perturb_self_weights_all(self, genome: Genome):
-        """
-        Apply perturbation to ALL known adapters on this engine.
-        Used by Backend.update().
-        """
         if not hasattr(self, "_lora_groups_cache"):
             self._init_lora_groups()
 
         adapter_manager = self._get_adapter_manager()
-        adapters = adapter_manager.list_adapters()  # dict-like {lora_id: lora_model}
+        adapters = adapter_manager.list_adapters()
         if not adapters:
             return True
 
@@ -298,33 +380,21 @@ class WorkerExtension:
             for g in groups.values():
                 g["cpu"].copy_(g["gpu"], non_blocking=True)
 
+            # activate/deactivate once per adapter after full copy-back
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            try:
+                if hasattr(adapter_manager, "deactivate_adapter"):
+                    adapter_manager.deactivate_adapter(lora_id)
+                elif hasattr(adapter_manager, "remove_adapter"):
+                    adapter_manager.remove_adapter(lora_id)
+            except Exception as e:
+                raise
+            try:
+                adapter_manager.activate_adapter(lora_id)
+            except Exception as e:
+                raise
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         return True
-
-    """
-    def perturb_self_weights_multi(self, genomes: List[Genome]):
-        lora_manager = self.model_runner.lora_manager
-        adapter_manager = lora_manager._adapter_manager
-        
-        adapters_dict = adapter_manager.list_adapters() # {aid: lora_model}
-        modules = adapter_manager.modules
-        
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
-        
-        if len(genomes) > len(sorted_adapters):
-            raise ValueError(
-                f"Received {len(genomes)} genomes but only {len(sorted_adapters)} adapters are available."
-            )
-        
-        for i, genome in enumerate(genomes):
-            _aid, lora_model = sorted_adapters[i]
-
-            adapter_params_wrapper = lora_model_parameters(lora_model, modules)
-            
-            genome.update_tensor(model=adapter_params_wrapper)
-            
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-    """

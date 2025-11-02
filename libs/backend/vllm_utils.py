@@ -52,11 +52,13 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def perturb_self_weights(self, genome: Genome):
-        device = next(self.model_runner.model.parameters()).device
         for seed, weight in zip(genome.seeds, genome.seed_weights):
-            gen = torch.Generator(device=device)
-            gen.manual_seed(int(seed))
+            rand_counter = 0
             for _, p in self.model_runner.model.named_parameters():
+                gen = torch.Generator(device=p.device)
+                gen.manual_seed(int(seed) + rand_counter)
+                rand_counter += 1
+
                 noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
                 noise.mul_(weight)
                 p.data.add_(noise)
@@ -67,11 +69,13 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def restore_self_weights(self, genome: Genome):
-        device = next(self.model_runner.model.parameters()).device
         for seed, weight in zip(genome.seeds, genome.seed_weights):
-            gen = torch.Generator(device=device)
-            gen.manual_seed(int(seed))
+            rand_counter = 0
             for _, p in self.model_runner.model.named_parameters():
+                gen = torch.Generator(device=p.device)
+                gen.manual_seed(int(seed) + rand_counter)
+                rand_counter += 1
+                
                 noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
                 noise.mul_(weight)
                 p.data.sub_(noise)
