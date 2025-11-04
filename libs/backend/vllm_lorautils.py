@@ -26,7 +26,7 @@ class WorkerExtension:
         adapters_found = []
         lora_modules_found = []
         lora_tensors_found = []
-        for aid, lora_model in sorted(adapters_dict.items(), key=lambda x: x[0]):
+        for aid, lora_model in sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1])):
             adapters_found.append(aid)
             for mod in modules:
                 lora = lora_model.get_lora(mod)
@@ -179,6 +179,7 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def perform_global_average_lora(self):
+        #TODO: FIX BUG INVOLVING AVERAGING MORE ADAPTERS THAN THERE ARE GENOMES (ZERO ADAPTERS)
         """
         Make every adapter slot identical to the global mean across:
           - all local adapter slots (intra-worker), and
@@ -247,7 +248,7 @@ class WorkerExtension:
 
         adapters_dict = adapter_manager.list_adapters()  # {aid: lora_model}
 
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
+        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1]))
 
         for aid, _lora_model in sorted_adapters:
             weights = self._collect_gpu_lora_tensors(aid)
@@ -284,7 +285,7 @@ class WorkerExtension:
 
         adapters_dict = adapter_manager.list_adapters()
 
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
+        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1]))
 
         if len(genomes) > len(sorted_adapters):
             raise ValueError(
@@ -328,7 +329,7 @@ class WorkerExtension:
         adapters_dict = adapter_manager.list_adapters()
         modules = adapter_manager.modules
 
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
+        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1]))
 
         if len(genomes) > len(sorted_adapters):
             raise ValueError(

@@ -101,6 +101,19 @@ class Genome:
         self.seed_weights.append(seed_weight)
         return new_seed
     
+    def get_copy(self) -> 'Genome':
+        """Get a copy of this genome.
+
+        Returns:
+            Genome: The copied genome.
+        """
+        copy = Genome()
+        copy.seeds = self.seeds.copy()
+        copy.seed_weights = self.seed_weights.copy()
+        copy.historical_rewards = self.historical_rewards.copy()
+        copy.starting_index = self.starting_index
+        return copy
+    
     def get_mirrored(self) -> 'Genome':
         """Get a mirrored version of this genome, where the latest seed is negated.
 
