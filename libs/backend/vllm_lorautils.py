@@ -26,7 +26,7 @@ class WorkerExtension:
         adapters_found = []
         lora_modules_found = []
         lora_tensors_found = []
-        for aid, lora_model in sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1])):
+        for aid, lora_model in sorted(adapters_dict.items(), key=lambda x: x[0]):
             adapters_found.append(aid)
             for mod in modules:
                 lora = lora_model.get_lora(mod)
@@ -248,7 +248,7 @@ class WorkerExtension:
 
         adapters_dict = adapter_manager.list_adapters()  # {aid: lora_model}
 
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1]))
+        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
 
         for aid, _lora_model in sorted_adapters:
             weights = self._collect_gpu_lora_tensors(aid)
@@ -265,6 +265,7 @@ class WorkerExtension:
                     lora_a.data.add_(noise)
                     del noise
 
+                    """
                     gen = torch.Generator(device=lora_b.device)
                     gen.manual_seed(int(seed) + rand_counter)
                     rand_counter += 1
@@ -273,6 +274,7 @@ class WorkerExtension:
                     noise.mul_(weight)
                     lora_b.data.add_(noise)
                     del noise
+                    """
                 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -285,7 +287,7 @@ class WorkerExtension:
 
         adapters_dict = adapter_manager.list_adapters()
 
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1]))
+        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
 
         if len(genomes) > len(sorted_adapters):
             raise ValueError(
@@ -308,6 +310,7 @@ class WorkerExtension:
                     lora_a.data.add_(noise)
                     del noise
 
+                    """
                     gen = torch.Generator(device=lora_b.device)
                     gen.manual_seed(int(seed) + rand_counter)
                     rand_counter += 1
@@ -316,6 +319,7 @@ class WorkerExtension:
                     noise.mul_(weight)
                     lora_b.data.add_(noise)
                     del noise
+                    """
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
@@ -329,7 +333,7 @@ class WorkerExtension:
         adapters_dict = adapter_manager.list_adapters()
         modules = adapter_manager.modules
 
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: int(x[0].split('_')[1]))
+        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
 
         if len(genomes) > len(sorted_adapters):
             raise ValueError(
@@ -353,6 +357,7 @@ class WorkerExtension:
                     lora_a.data.sub_(noise)
                     del noise
 
+                    """
                     gen = torch.Generator(device=lora_b.device)
                     gen.manual_seed(int(seed) + rand_counter)
                     rand_counter += 1
@@ -361,7 +366,7 @@ class WorkerExtension:
                     noise.mul_(weight)
                     lora_b.data.sub_(noise)
                     del noise
-
+                    """
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()

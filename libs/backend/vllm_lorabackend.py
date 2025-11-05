@@ -236,10 +236,10 @@ class VLLMBackendLoRA(Backend):
             target_modules=default_target_modules,
         )
         peft_model = get_peft_model(base_model, lora_cfg)
-        with torch.no_grad():
-          for name, param in peft_model.named_parameters():
-              if "lora_" in name:
-                  param.data.zero_()
+        #with torch.no_grad():
+        #  for name, param in peft_model.named_parameters():
+        #      if "lora_" in name:
+        #          param.data.zero_()
 
         self._lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
 
