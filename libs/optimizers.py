@@ -7,13 +7,15 @@ from libs.genome import Genome
 import math
 
 class Optimizer(ABC):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", optimizer_name: str = "Optimizer"):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", optimizer_name: str = "Optimizer", norm_by_mean : bool = True, norm_by_stddev : bool = True):
         self.total_steps = total_steps
         self.learning_rate = learning_rate
         self.seed_weight = seed_weight
         self.warmup_steps = warmup_steps
         self.scheduler = scheduler
         self.optimizer_name = optimizer_name
+        self.norm_by_mean = norm_by_mean
+        self.norm_by_stddev = norm_by_stddev
 
     @abstractmethod
     def get_step(self, genomes: List[Genome], current_step: int) -> Genome:
@@ -50,8 +52,8 @@ class TestMaxOptimizer(Optimizer):
         return merged
 
 class SimpleOptimizer(Optimizer):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none"):
-        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="SimpleOptimizer")
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True):
+        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="SimpleOptimizer", norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev)
 
     def get_step(self, genomes: List[Genome], current_step: int) -> Genome:
         """Perform a single gradient step on a list of genomes based on their rewards r and seeds s.
@@ -82,13 +84,27 @@ class SimpleOptimizer(Optimizer):
                         old_seeds_count[seed] = 1
                         new_seeds[seed] = weight
                     else:
-                        new_seeds[seed] = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
+                        update_value = 0.0
+                        if self.norm_by_mean:
+                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
+                        else:
+                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * g.historical_rewards[-1]
+                        if self.norm_by_stddev:
+                            update_value /= (reward_stddev + 1e-8)
+                        new_seeds[seed] = update_value
                 else:
                     if i < g.starting_index:
                         old_seeds_count[seed] += 1
                         new_seeds[seed] += weight
                     else:
-                        new_seeds[seed] += math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
+                        update_value = 0.0
+                        if self.norm_by_mean:
+                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
+                        else:
+                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * g.historical_rewards[-1]
+                        if self.norm_by_stddev:
+                            update_value /= (reward_stddev + 1e-8)
+                        new_seeds[seed] += update_value
         # Average the old seeds' weights
         for seed, count in old_seeds_count.items():
             new_seeds[seed] /= count
@@ -105,8 +121,8 @@ class MomentumOptimizer(Optimizer):
     velocity_seeds: OrderedDict
     cutoff_seeds: int
 
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.9, cutoff_seeds = 2000):
-        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="MomentumOptimizer")
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.9, cutoff_seeds = 2000, norm_by_mean : bool = True, norm_by_stddev : bool = True):
+        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, optimizer_name="MomentumOptimizer", norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev)
         self.momentum = momentum
         self.velocity_seeds = OrderedDict()
         # Having a cutoff keeps the size of the velocity array from growing unreasonably, which would create a lot of overhead during updates
@@ -134,7 +150,13 @@ class MomentumOptimizer(Optimizer):
                         old_seeds_count[seed] += 1
                         old_seeds[seed] += weight
                 else:
-                    new_seed_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean) / (reward_stddev + 1e-8)
+                    new_seed_value = 0
+                    if self.norm_by_mean:
+                        new_seed_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
+                    else:
+                        new_seed_value = math.copysign(1, weight) * lr * (1/len(genomes)) * g.historical_rewards[-1]
+                    if self.norm_by_stddev:
+                        new_seed_value /= (reward_stddev + 1e-8)
                     if seed in self.velocity_seeds:
                         self.velocity_seeds[seed] += new_seed_value
                     else:
