@@ -17,14 +17,12 @@ from vllm import LLM, SamplingParams
 
 from libs.genome import Genome
 
-from ray.util import collective
-from torch.distributed import ReduceOp
-
 class VLLMBackend(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
+        super().__init__(backend_name="Generic vLLM Backend", NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -41,7 +39,7 @@ class VLLMBackend(Backend):
                 super().__init__(*args, **kwargs)
         #-----------------------------------------------------#
 
-        print("#-- Initializing Backend [VLLMBackendTP] --#")
+        print(f"#-- Initializing Backend {self.backend_name} --#")
         print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
         ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
 
@@ -58,9 +56,6 @@ class VLLMBackend(Backend):
         ]
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.sampler = sampler
-        self.use_tqdm = use_tqdm
-        self.time_self = time_self
         self.world_size = NUM_GPUS
 
         print("#-- Spawning Training Actors with vLLM backends --#")

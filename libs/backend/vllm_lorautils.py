@@ -255,7 +255,7 @@ class WorkerExtension:
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 rand_counter = 0
                 for name, (lora_a, lora_b) in sorted(weights.items()):
-                    if "a" in target:
+                    if "a" in target.lower():
                         gen = torch.Generator(device=lora_a.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
@@ -264,7 +264,7 @@ class WorkerExtension:
                         noise.mul_(weight)
                         lora_a.data.add_(noise)
                         del noise
-                    if "b" in target:
+                    if "b" in target.lower():
                         gen = torch.Generator(device=lora_b.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
@@ -299,7 +299,7 @@ class WorkerExtension:
                 rand_counter = 0
                 
                 for _, (lora_a, lora_b) in sorted(weights.items()):
-                    if "a" in target:
+                    if "a" in target.lower():
                         gen = torch.Generator(device=lora_a.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
@@ -309,7 +309,7 @@ class WorkerExtension:
                         lora_a.data.add_(noise)
                         del noise
 
-                    if "b" in target:
+                    if "b" in target.lower():
                         gen = torch.Generator(device=lora_b.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
@@ -346,7 +346,7 @@ class WorkerExtension:
                 rand_counter = 0
 
                 for _, (lora_a, lora_b) in sorted(weights.items()):
-                    if "a" in target:
+                    if "a" in target.lower():
                         gen = torch.Generator(device=lora_a.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
@@ -356,7 +356,7 @@ class WorkerExtension:
                         lora_a.data.sub_(noise)
                         del noise
 
-                    if "b" in target:
+                    if "b" in target.lower():
                         gen = torch.Generator(device=lora_b.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1

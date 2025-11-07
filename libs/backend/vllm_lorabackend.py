@@ -17,9 +17,6 @@ from vllm import LLM, SamplingParams
 
 from libs.genome import Genome
 
-from ray.util import collective
-from torch.distributed import ReduceOp
-
 from peft import LoraConfig, get_peft_model
 from vllm.lora.request import LoRARequest
 import shutil
@@ -31,6 +28,9 @@ class VLLMBackendLoRA(Backend):
     sampler: SamplingParams
 
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b", init_lora_weights: str = "default"):
+        super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend with {str(population_size)} Adapters, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
+        if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
+            raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -153,9 +153,6 @@ class VLLMBackendLoRA(Backend):
         ]
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.sampler = Sampler
-        self.use_tqdm = use_tqdm
-        self.time_self = time_self
         self.world_size = NUM_GPUS
         self.population_size = population_size
         max_loras_per_worker = math.ceil(population_size / NUM_GPUS)

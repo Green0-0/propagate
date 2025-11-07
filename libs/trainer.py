@@ -61,6 +61,10 @@ class SimpleTrainer:
                     "batch_size": dataset.batch_size,
                     "mirror": mirror,
                     "optimizer": optimizer.optimizer_name,
+                    "backend": backend.backend_name,
+                    "num_gpus": backend.NUM_GPUS,
+                    "cpus_per_gpu": backend.CPUS_PER_GPU,
+                    "gpu_fraction_worker": backend.GPU_FRACTION_VLLM_WORKER,
                 }
                 wandb.init(project=self.wandb_project, config=config)
                 wandb.define_metric("iteration_count")
