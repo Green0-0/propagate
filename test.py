@@ -20,13 +20,13 @@ try:
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.6, sampler=sampler, use_tqdm=False, time_self=True)
+    backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
 
-    optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.0005, seed_weight=0.001)
-    #optimizer = MomentumOptimizer(total_steps=250, learning_rate=0.0005, seed_weight=0.001, warmup_steps=10, scheduler="cosine", momentum=0.5)
+    #optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.05, seed_weight=0.001, norm_by_mean=False, norm_by_stddev=False)
+    optimizer = MomentumOptimizer(total_steps=250, learning_rate=0.02, seed_weight=0.001, warmup_steps=0, norm_by_mean=False, norm_by_stddev=False, scheduler="cosine", momentum=0.75)
 
-    trainer = SimpleTrainer(population_size=28,
-                            mirror=False,
+    trainer = SimpleTrainer(population_size=14,
+                            mirror=True,
                             optimizer=optimizer,
                             backend=backend,
                             dataset=dataset,

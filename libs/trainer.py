@@ -49,23 +49,27 @@ class SimpleTrainer:
         self.print_samples = print_samples
 
         if self.wandb_project is not None and self.wandb_project != "":
-            wandb.login()
-            config = {
-                "population_size": population_size,
-                "learning_rate": optimizer.learning_rate,
-                "seed_weight": optimizer.seed_weight,
-                "warmup_steps": optimizer.warmup_steps,
-                "scheduler": optimizer.scheduler,
-                "total_steps": optimizer.total_steps,
-                "batch_size": dataset.batch_size,
-                "mirror": mirror,
-                "optimizer": optimizer.optimizer_name,
-            }
-            wandb.init(project=self.wandb_project, config=config)
-            wandb.define_metric("iteration_count")
-            wandb.define_metric("train/*", step_metric="iteration_count")
-            wandb.define_metric("val/*", step_metric="iteration_count")
-            print(f"#-- WandB logging initialized for project: {self.wandb_project} --#")
+            try:
+                wandb.login()
+                config = {
+                    "population_size": population_size,
+                    "learning_rate": optimizer.learning_rate,
+                    "seed_weight": optimizer.seed_weight,
+                    "warmup_steps": optimizer.warmup_steps,
+                    "scheduler": optimizer.scheduler,
+                    "total_steps": optimizer.total_steps,
+                    "batch_size": dataset.batch_size,
+                    "mirror": mirror,
+                    "optimizer": optimizer.optimizer_name,
+                }
+                wandb.init(project=self.wandb_project, config=config)
+                wandb.define_metric("iteration_count")
+                wandb.define_metric("train/*", step_metric="iteration_count")
+                wandb.define_metric("val/*", step_metric="iteration_count")
+                print(f"#-- WandB logging initialized for project: {self.wandb_project} --#")
+            except Exception as e:
+                print(f"#-- WandB logging initialization failed: {e} --#")
+                self.wandb_project = None
             
         print("#-- Trainer initialized. --#")
 
@@ -78,28 +82,31 @@ class SimpleTrainer:
         best_genome = max(genomes, key=lambda g: g.historical_rewards[-1])
         worst_genome = min(genomes, key=lambda g: g.historical_rewards[-1])
         if self.wandb_project is not None and self.wandb_project != "":
-            sample_table = wandb.Table(columns=["type", "reward", "response"])
-            sample_table.add_data(
-                "best",
-                best_genome.historical_rewards[-1],
-                best_genome.latest_outputs[0]
-            )
-            sample_table.add_data(
-                "worst",
-                worst_genome.historical_rewards[-1],
-                worst_genome.latest_outputs[0]
-            )
-            wandb.log({
-                f"train/average_reward": average,
-                f"train/min_reward": worst_genome.historical_rewards[-1],
-                f"train/max_reward": best_genome.historical_rewards[-1],
-                f"train/stddev_reward": stddev,
-                f"train/time_seconds": time_taken,
-                f"train/average_response_length": average_response_length,
-                f"train/samples": sample_table,
-                f"train/learning_rate": self.optimizer.get_lr(self.iteration_count),
-                f"iteration_count": self.iteration_count
-            }, step=self.iteration_count)
+            try:
+                sample_table = wandb.Table(columns=["type", "reward", "response"])
+                sample_table.add_data(
+                    "best",
+                    best_genome.historical_rewards[-1],
+                    best_genome.latest_outputs[0]
+                )
+                sample_table.add_data(
+                    "worst",
+                    worst_genome.historical_rewards[-1],
+                    worst_genome.latest_outputs[0]
+                )
+                wandb.log({
+                    f"train/average_reward": average,
+                    f"train/min_reward": worst_genome.historical_rewards[-1],
+                    f"train/max_reward": best_genome.historical_rewards[-1],
+                    f"train/stddev_reward": stddev,
+                    f"train/time_seconds": time_taken,
+                    f"train/average_response_length": average_response_length,
+                    f"train/samples": sample_table,
+                    f"train/learning_rate": self.optimizer.get_lr(self.iteration_count),
+                    f"iteration_count": self.iteration_count
+                }, step=self.iteration_count)
+            except Exception as e:
+                print(f"#-- WandB logging failed: {e} --#")
         print(f"#-- Stats: average: {average}, min: {worst_genome.historical_rewards[-1]}, max: {best_genome.historical_rewards[-1]}, stddev: {stddev}, average response length: {average_response_length} --#")
         if self.print_samples:
             print(f"#-- SAMPLE RESPONSE BEST GENOME: --#\n{best_genome.latest_outputs[0]}\n")
@@ -111,14 +118,17 @@ class SimpleTrainer:
         average_response_length = sum(len(response.split()) for response in genome.latest_outputs) / len(genome.latest_outputs)
         sample_response = genome.latest_outputs[0]
         if self.wandb_project is not None and self.wandb_project != "":
-            wandb.log({
-                f"val/validation_score": score,
-                f"val/validation_stddev": score_stddev,
-                f"val/time_seconds": time_taken,
-                f"val/average_response_length": average_response_length,
-                f"val/sample_response": wandb.Table(data=[[sample_response]], columns=["response"]),
-                f"iteration_count": self.iteration_count
-            }, step=self.iteration_count)
+            try:
+                wandb.log({
+                    f"val/validation_score": score,
+                    f"val/validation_stddev": score_stddev,
+                    f"val/time_seconds": time_taken,
+                    f"val/average_response_length": average_response_length,
+                    f"val/sample_response": wandb.Table(data=[[sample_response]], columns=["response"]),
+                    f"iteration_count": self.iteration_count
+                }, step=self.iteration_count)
+            except Exception as e:
+                print(f"#-- WandB logging failed: {e} --#")
         print(f"#-- Stats: reward: {score}, response length: {average_response_length} --#")
         if self.print_samples:
             print(f"#-- SAMPLE RESPONSE: --#\n{sample_response}\n")
