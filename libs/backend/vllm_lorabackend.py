@@ -30,7 +30,7 @@ class VLLMBackendLoRA(Backend):
     tokenizer: AutoTokenizer
     sampler: SamplingParams
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b", init_lora_weights: str = "default"):
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -159,6 +159,7 @@ class VLLMBackendLoRA(Backend):
         self.world_size = NUM_GPUS
         self.population_size = population_size
         max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
+        self.lora_perturb_target = lora_perturb_target
 
         print("#-- Spawning Training Actors with vLLM backends --#")
         self.inference_engines = [
@@ -230,16 +231,28 @@ class VLLMBackendLoRA(Backend):
             torch_dtype=torch.float16,
             device_map="cpu",
         )
-        lora_cfg = LoraConfig(
-            r=lora_rank,
-            lora_alpha=2 * lora_rank,
-            target_modules=default_target_modules,
-        )
-        peft_model = get_peft_model(base_model, lora_cfg)
-        #with torch.no_grad():
-        #  for name, param in peft_model.named_parameters():
-        #      if "lora_" in name:
-        #          param.data.zero_()
+        
+        if init_lora_weights == "zero":
+            print(f"#-- Initializing rank {lora_rank} LoRA adapters with zeros --#")
+            lora_cfg = LoraConfig(
+                r=lora_rank,
+                lora_alpha=2 * lora_rank,
+                target_modules=default_target_modules,
+            )
+            peft_model = get_peft_model(base_model, lora_cfg)
+            with torch.no_grad():
+                for name, param in peft_model.named_parameters():
+                    if "lora_" in name:
+                        param.data.zero_()
+        else:
+            print(f"#-- Initializing rank {lora_rank} LoRA adapters with {init_lora_weights} --#")
+            lora_cfg = LoraConfig(
+                r=lora_rank,
+                lora_alpha=2 * lora_rank,
+                target_modules=default_target_modules,
+                init_lora_weights=init_lora_weights,
+            )
+            peft_model = get_peft_model(base_model, lora_cfg)
 
         self._lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
 
@@ -281,9 +294,14 @@ class VLLMBackendLoRA(Backend):
 
     def update(self, genome: Genome):
         """Update the model permanently with a genome as the source."""
-        ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome, self.lora_perturb_target)) for llm in self.inference_engines])
 
         ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
+
+        if self.lora_perturb_target == "a-":
+            self.lora_perturb_target = "b-"
+        elif self.lora_perturb_target == "b-":
+            self.lora_perturb_target = "a-"
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
         if len(genomes) > self.population_size:
@@ -314,7 +332,7 @@ class VLLMBackendLoRA(Backend):
                 continue
                 
             h = llm.collective_rpc.remote(
-                "perturb_self_weights_multi", args=(my_genomes.tolist(),)
+                "perturb_self_weights_multi", args=(my_genomes.tolist(), self.lora_perturb_target,)
             )
             perturb_handles.append(h)
         ray.get(perturb_handles)
@@ -368,7 +386,7 @@ class VLLMBackendLoRA(Backend):
             
             if len(my_genomes) > 0:
                 h = llm.collective_rpc.remote(
-                    "restore_self_weights_multi", args=(my_genomes.tolist(),)
+                    "restore_self_weights_multi", args=(my_genomes.tolist(), self.lora_perturb_target,)
                 )
                 restore_handles.append(h)
         
