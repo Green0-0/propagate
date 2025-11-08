@@ -28,7 +28,7 @@ class VLLMBackendLoRA(Backend):
     sampler: SamplingParams
 
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True):
-        super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend with {str(population_size)} Adapters, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
+        super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend with {str(population_size)} Adapters, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
             raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"

@@ -22,7 +22,7 @@ class VLLMBackend(Backend):
     sampler: SamplingParams
 
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
-        super().__init__(backend_name="Generic vLLM Backend", NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
+        super().__init__(backend_name="Generic vLLM Backend", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)

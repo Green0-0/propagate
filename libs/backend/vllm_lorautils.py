@@ -30,8 +30,9 @@ class WorkerExtension:
             adapters_found.append(aid)
             for mod in modules:
                 lora = lora_model.get_lora(mod)
-                lora_modules_found.append(mod)
-                lora_tensors_found.append((str(lora.lora_a)[0:20], str(lora.lora_b)[0:20]))
+                if lora is not None:
+                    lora_modules_found.append(mod)
+                    lora_tensors_found.append((str(lora.lora_a)[0:20], str(lora.lora_b)[0:20]))
             adapter_manager.pin_adapter(aid)
         print(f"#-- {len(adapters_found)} LoRA Adapters Found: {adapters_found} --#")
         print(f"#-- {len(lora_modules_found)} LoRA Modules Found, ie. {lora_modules_found[0]} --#")

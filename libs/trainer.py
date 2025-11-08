@@ -20,14 +20,13 @@ class SimpleTrainer:
 
     wandb_project: str
 
-    def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False, perform_updates: bool = True):
+    def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
         print(f"#-- Population Size: {population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.seed_weight} --#")
         self.optimizer = optimizer
         self.backend = backend
         self.dataset = dataset
         self.population_size = population_size
-        self.perform_updates = perform_updates
         self.mirror = mirror
         if mirror:
             print("#-- Mirror mode enabled: population size doubled. --#")
@@ -164,11 +163,8 @@ class SimpleTrainer:
                 end_time = time.time()
                 print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
                 self.log_val_stats(new_genome, end_time - start_time)
-            if self.perform_updates:
-                self.backend.update(new_genome)
-                self.genomes = [Genome() for _ in range(self.population_size)]
-            else:
-                self.genomes = [new_genome.get_copy() for _ in range(self.population_size)]
+            self.backend.update(new_genome)
+            self.genomes = [Genome() for _ in range(self.population_size)]
             for genome in self.genomes:
                 genome.mutate_seed(self.optimizer.seed_weight)
             if self.mirror:
