@@ -19,7 +19,7 @@ try:
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.7, Sampler=sampler, lora_rank=8, use_tqdm=True, time_self=False, lora_perturb_target="b-")
+    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.7, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-")
     
     optimizer = SimpleOpt(total_steps=75, learning_rate=0.015, seed_weight=0.02)
     #optimizer = MomentumOpt(total_steps=75, learning_rate=0.015, seed_weight=0.02)

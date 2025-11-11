@@ -34,7 +34,6 @@ class VLLMBackend(Backend):
         #--------------------------------------------------------#
         class MyLLM(LLM):
             def __init__(self, *args, **kwargs):
-                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 super().__init__(*args, **kwargs)
         #-----------------------------------------------------#
@@ -58,7 +57,7 @@ class VLLMBackend(Backend):
                 model=self.model_name,
                 worker_extension_cls="libs.backend.vllm_utils.WorkerExtension",
                 tensor_parallel_size=1,
-                #distributed_executor_backend="ray",
+                distributed_executor_backend="ray",
                 dtype="float16",
                 gpu_memory_utilization=self.GPU_FRACTION_VLLM_WORKER,
                 max_model_len=self.max_model_len
@@ -105,7 +104,7 @@ class VLLMBackend(Backend):
         ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer,)) for llm in self.inference_engines])
 
         if self.NUM_GPUS > 1:
-            ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
+            ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
         """
@@ -157,7 +156,7 @@ class VLLMBackend(Backend):
                 start_time = end_time
                 
         if self.NUM_GPUS > 1:
-            ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
+            ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
             
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
