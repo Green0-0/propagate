@@ -14,16 +14,18 @@ gc.collect()
 torch.cuda.empty_cache()
 
 try:
-    dataset = load_countdown_dataset(batch_size=100)
+    dataset = load_countdown_dataset(batch_size=300)
     dataset.generate_test_split(test_fraction=0.1, fold_index=1)
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackendLoRA(model_name="G-reen/Qwen2.5-3B-NVFP4", lora_model_source="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=1, CPUS_PER_GPU=12, GPU_FRACTION_VLLM_WORKER=0.7, Sampler=sampler, lora_rank=8, use_tqdm=True, time_self=False, lora_perturb_target="b-")
+    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.7, Sampler=sampler, lora_rank=8, use_tqdm=True, time_self=False, lora_perturb_target="b-")
     
-    optimizer = SimpleOpt(total_steps=100, learning_rate=0.015, seed_weight=0.02)
+    optimizer = SimpleOpt(total_steps=75, learning_rate=0.015, seed_weight=0.02)
+    #optimizer = MomentumOpt(total_steps=75, learning_rate=0.015, seed_weight=0.02)
+    #optimizer = MuonOpt(total_steps=75, learning_rate=0.015, seed_weight=0.02)
 
-    trainer = SimpleTrainer(population_size=4,
+    trainer = SimpleTrainer(population_size=28,
                             mirror=False,
                             optimizer=optimizer,
                             backend=backend,

@@ -160,7 +160,7 @@ class VLLMBackendLoRA(Backend):
                 model=self.model_name,
                 worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
-                #distributed_executor_backend="ray",
+                distributed_executor_backend="ray",
                 dtype="float16",
                 gpu_memory_utilization=self.GPU_FRACTION_VLLM_WORKER,
                 enable_lora=True,

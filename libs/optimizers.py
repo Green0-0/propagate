@@ -62,7 +62,7 @@ class Optimizer(ABC):
         if sched.startswith("cosine"):
             return self.learning_rate * 0.5 * (1.0 + math.cos(math.pi * t))
         if sched.startswith("exponential"):
-            return self.learning_rate * (0.1 ** t)
+            return self.learning_rate * math.exp(-2 * math.sqrt(t/(self.total_steps - self.warmup_steps)))
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
     
 class SimpleOpt(Optimizer):
