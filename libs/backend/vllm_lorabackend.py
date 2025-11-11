@@ -45,7 +45,6 @@ class VLLMBackendLoRA(Backend):
         #--------------------------------------------------------#
         class MyLLM(LLM):
             def __init__(self, *args, **kwargs):
-                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 super().__init__(*args, **kwargs)
 
