@@ -1,10 +1,12 @@
+import json
 from typing import List
 from libs.backend.backend_abc import Backend
 from libs.datasets.dataset import Dataset
-from libs.genome import Genome, save_genome_to_disk
 from libs.optimizers import Optimizer
 import time
 import wandb
+
+from libs.genome import Genome
 
 class SimpleTrainer:
     population_size: int
@@ -14,7 +16,6 @@ class SimpleTrainer:
     mirror: bool
 
     genomes: List[Genome]
-    historical_genome_steps : List[Genome]
 
     iteration_count: int
 
@@ -31,6 +32,8 @@ class SimpleTrainer:
         if mirror:
             print("#-- Mirror mode enabled: population size doubled. --#")
         
+        backend.startup(self)
+        
         self.genomes = [Genome() for _ in range(population_size)]
         for genome in self.genomes:
             genome.mutate_seed(optimizer.seed_weight)
@@ -39,7 +42,6 @@ class SimpleTrainer:
             for genome in self.genomes:
                 mirrored_genomes.append(genome.get_mirrored())
             self.genomes.extend(mirrored_genomes)
-        self.historical_genome_steps = []
 
         self.iteration_count = 0
 
@@ -152,8 +154,8 @@ class SimpleTrainer:
             print(f"#-- Iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
             self.log_train_stats(self.genomes, end_time - start_time)
 
-            new_genome = self.optimizer.get_step(self.genomes, self.iteration_count)
-            self.historical_genome_steps.append(new_genome)
+            self.optimizer.update_self(self.genomes, self.iteration_count)
+            new_genome = self.optimizer.get_representative()
 
             if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
                 start_time = time.time()
@@ -163,7 +165,8 @@ class SimpleTrainer:
                 end_time = time.time()
                 print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
                 self.log_val_stats(new_genome, end_time - start_time)
-            self.backend.update(new_genome)
+
+            self.backend.update(self.optimizer)
             self.genomes = [Genome() for _ in range(self.population_size)]
             for genome in self.genomes:
                 genome.mutate_seed(self.optimizer.seed_weight)
@@ -177,4 +180,5 @@ class SimpleTrainer:
         self.backend.save_weights_to_disk(filepath)
 
     def save_model_seeds(self, filepath: str):
-        save_genome_to_disk(self.historical_genome_steps, filepath)
+        with open(filepath, "w") as f:
+            json.dump(self.optimizer.get_update_history(), f)

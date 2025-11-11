@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict
 
 from libs.genome import Genome
+from libs.optimizers import Optimizer
 
 class Backend(ABC):
     def __init__(self, backend_name: str, model_name: str, NUM_GPUS: int = 1, CPUS_PER_GPU: int = 4, GPU_FRACTION_VLLM_WORKER: float = 0.5, sampler: object = None, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
@@ -16,7 +17,12 @@ class Backend(ABC):
         self.time_self = time_self
 
     @abstractmethod
-    def update(self, genome: Genome):
+    def startup(self, trainer=None):
+        """Initialize the backend. Called before training starts."""
+        pass
+
+    @abstractmethod
+    def update(self, optimizer: Optimizer):
         """Update the model permanently with a genome as the source."""
         pass
 

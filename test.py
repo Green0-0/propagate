@@ -3,7 +3,7 @@ from libs.datasets.countdown_dataset import load_countdown_dataset
 from libs.datasets.oreal_math_dataset import load_oreal_rl_prompts_dataset
 from libs.genome import Genome
 from libs.trainer import SimpleTrainer
-from libs.optimizers import SimpleOptimizer, MomentumOptimizer, TestMaxOptimizer
+from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt
 from vllm import SamplingParams
 
 import gc
@@ -14,19 +14,18 @@ gc.collect()
 torch.cuda.empty_cache()
 
 try:
-    dataset = load_countdown_dataset(batch_size=300)
-    #dataset = load_oreal_rl_prompts_dataset(batch_size=300)
+    dataset = load_countdown_dataset(batch_size=100)
     dataset.generate_test_split(test_fraction=0.1, fold_index=1)
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
+    backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=1, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
 
-    #optimizer = SimpleOptimizer(total_steps=250, learning_rate=0.05, seed_weight=0.001, norm_by_mean=False, norm_by_stddev=False)
-    optimizer = MomentumOptimizer(total_steps=250, learning_rate=0.02, seed_weight=0.001, warmup_steps=0, norm_by_mean=False, norm_by_stddev=False, scheduler="cosine", momentum=0.75)
+    optimizer = SimpleOpt(total_steps=250, learning_rate=0.05, seed_weight=0.001)
+    #optimizer = MomentumOpt(total_steps=250, learning_rate=0.02, seed_weight=0.001, warmup_steps=0, scheduler="cosine", momentum=0.75)
 
-    trainer = SimpleTrainer(population_size=14,
-                            mirror=True,
+    trainer = SimpleTrainer(population_size=4,
+                            mirror=False,
                             optimizer=optimizer,
                             backend=backend,
                             dataset=dataset,

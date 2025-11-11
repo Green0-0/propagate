@@ -1,5 +1,5 @@
 import math
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from uuid import uuid4
 from libs.backend.backend_abc import Backend
 
@@ -23,26 +23,29 @@ import shutil
 import tempfile
 import gc
 
-class VLLMBackendLoRA(Backend):
-    tokenizer: AutoTokenizer
-    sampler: SamplingParams
+from libs.optimizers import Optimizer
 
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, population_size: int, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True):
-        super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend with {str(population_size)} Adapters, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
+class VLLMBackendLoRA(Backend):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None):
+        super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
+        self.lora_rank = lora_rank
+        self.lora_perturb_target: str = lora_perturb_target
+        self.init_lora_weights = init_lora_weights
+        self.lora_model_source = lora_model_source
         if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
             raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
-        os.environ["VLLM_ALLOW_INSECURE_SERIALIZATION"] = "1"
+        
+    def startup(self, trainer):
+        """Initializes the vLLM backend with Ray actors and placement groups."""
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
         os.environ.pop("RAY_GCS_SERVER_ADDRESS", None)
-
         #--------------------------------------------------------#
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
         class MyLLM(LLM):
             def __init__(self, *args, **kwargs):
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-                os.environ["VLLM_RAY_PER_WORKER_GPUS"] = str(GPU_FRACTION_VLLM_WORKER)
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 super().__init__(*args, **kwargs)
 
@@ -134,67 +137,48 @@ class VLLMBackendLoRA(Backend):
 
                 return results
         #-----------------------------------------------------#
-
-        print("#-- Initializing Backend [VLLMBackendTP] --#")
-        print(f"#-- GPUS: {NUM_GPUS}, CPUS per GPU: {CPUS_PER_GPU}, GPU Fraction VLLM Worker: {GPU_FRACTION_VLLM_WORKER} --#")
-        ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
-
-        pgs = [placement_group([{"GPU": 1, "CPU"
-        "": CPUS_PER_GPU}]) for _ in range(NUM_GPUS)]
-        ray.get([pg.ready() for pg in pgs])
-
-        strategies = [
-            PlacementGroupSchedulingStrategy(
-                placement_group=pg,
-                placement_group_capture_child_tasks=True,
-                placement_group_bundle_index=0,
-            )
-            for pg in pgs
-        ]
-
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.world_size = NUM_GPUS
-        self.population_size = population_size
-        max_loras_per_worker = math.ceil(population_size / NUM_GPUS)
-        self.lora_perturb_target = lora_perturb_target
+        print(f"#-- Initializing Backend {self.backend_name} --#")
+        print(f"#-- GPUS: {self.NUM_GPUS}, CPUS per GPU: {self.CPUS_PER_GPU}, GPU Fraction VLLM Worker: {self.GPU_FRACTION_VLLM_WORKER} --#")
 
         print("#-- Spawning Training Actors with vLLM backends --#")
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
+        pgs = [placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}]) for _ in range(self.NUM_GPUS)]
+        ray.get([pg.ready() for pg in pgs])
+        strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
+        
+        self.population_size = trainer.population_size
+        max_loras_per_worker = math.ceil(self.population_size / self.NUM_GPUS)
+
         self.inference_engines = [
             ray.remote(
                 num_cpus=0,
                 num_gpus=0,
                 scheduling_strategy=strategy,
             )(MyLLM).remote(
-                model=model_name,
-                enforce_eager=False,
+                model=self.model_name,
                 worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
-                distributed_executor_backend="ray",
+                #distributed_executor_backend="ray",
                 dtype="float16",
-                enable_prefix_caching=False,
-                gpu_memory_utilization=GPU_FRACTION_VLLM_WORKER,
+                gpu_memory_utilization=self.GPU_FRACTION_VLLM_WORKER,
                 enable_lora=True,
                 max_loras=max_loras_per_worker,
-                max_lora_rank=lora_rank,
+                max_lora_rank=self.lora_rank,
                 max_cpu_loras=1000,
-                max_model_len=max_model_len,
+                max_model_len=self.max_model_len,
             )
             for strategy in strategies
         ]
 
-        if self.world_size > 1:
+        if self.NUM_GPUS > 1:
             print("#-- Initializing Ray Collective group for GPU sync --#")
-            ray.get([llm.collective_rpc.remote("init_collective_group", args=(self.world_size, rank,)) for rank, llm in enumerate(self.inference_engines)])
+            ray.get([llm.collective_rpc.remote("init_collective_group", args=(self.NUM_GPUS, rank,)) for rank, llm in enumerate(self.inference_engines)])
         else:
             print("#-- Skipping collective group (1 GPU) --#")
 
         def cleanup():
-            if self.world_size > 1:
-                try:
-                    ray.get([llm.collective_rpc.remote("destroy_collective_group") for llm in self.inference_engines])
-                    print("\n#-- Collective group destroyed --#")
-                except Exception as e:
-                    print(f"#-- Error destroying collective group: {e} --#")            
             for llm in self.inference_engines:
                 try:
                     ray.kill(llm)
@@ -205,6 +189,7 @@ class VLLMBackendLoRA(Backend):
                     remove_placement_group(pg)
                 except Exception:
                     pass
+            ray.shutdown()
 
         def sig_handler(sig, frame):
             cleanup()
@@ -223,17 +208,19 @@ class VLLMBackendLoRA(Backend):
             "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
         ]
 
+        if self.lora_model_source is None:
+            self.lora_model_source = self.model_name
         base_model = AutoModelForCausalLM.from_pretrained(
-            model_name,
+            self.lora_model_source,
             torch_dtype=torch.float16,
             device_map="cpu",
         )
         
-        if init_lora_weights == "zero":
-            print(f"#-- Initializing rank {lora_rank} LoRA adapters with zeros --#")
+        if self.init_lora_weights == "zero":
+            print(f"#-- Initializing rank {self.lora_rank} LoRA adapters with zeros --#")
             lora_cfg = LoraConfig(
-                r=lora_rank,
-                lora_alpha=2 * lora_rank,
+                r=self.lora_rank,
+                lora_alpha=2 * self.lora_rank,
                 target_modules=default_target_modules,
             )
             peft_model = get_peft_model(base_model, lora_cfg)
@@ -242,12 +229,12 @@ class VLLMBackendLoRA(Backend):
                     if "lora_" in name:
                         param.data.zero_()
         else:
-            print(f"#-- Initializing rank {lora_rank} LoRA adapters with {init_lora_weights} --#")
+            print(f"#-- Initializing rank {self.lora_rank} LoRA adapters with {self.init_lora_weights} --#")
             lora_cfg = LoraConfig(
-                r=lora_rank,
-                lora_alpha=2 * lora_rank,
+                r=self.lora_rank,
+                lora_alpha=2 * self.lora_rank,
                 target_modules=default_target_modules,
-                init_lora_weights=init_lora_weights,
+                init_lora_weights=self.init_lora_weights,
             )
             peft_model = get_peft_model(base_model, lora_cfg)
 
@@ -261,7 +248,6 @@ class VLLMBackendLoRA(Backend):
             peft_model.save_pretrained(p, safe_serialization=True)
             self.lora_paths[name] = p
 
-        # 3) Free the HF objects from memory
         try:
             del peft_model
         except Exception:
@@ -283,15 +269,10 @@ class VLLMBackendLoRA(Backend):
         print("#-- Locating LoRA adapters --#")
         ray.get(self.inference_engines[0].collective_rpc.remote("self_report_lora_params_sanity_check"))
         print("#-- Backend Initialized --#")
-        pass
-
-    def __del__(self):
-        if hasattr(self, "_lora_tmp_root") and os.path.exists(self._lora_tmp_root):
-            shutil.rmtree(self._lora_tmp_root, ignore_errors=True)
-
-    def update(self, genome: Genome):
+        
+    def update(self, optimizer: Optimizer):
         """Update the model permanently with a genome as the source."""
-        ray.get([llm.collective_rpc.remote("perturb_self_weights_all", args=(genome, self.lora_perturb_target)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer, self.lora_perturb_target)) for llm in self.inference_engines])
 
         ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
 
@@ -315,7 +296,7 @@ class VLLMBackendLoRA(Backend):
                 s = s + suffix
             prompts.append(s)
 
-        genome_chunks = np.array_split(genomes, self.world_size)
+        genome_chunks = np.array_split(genomes, self.NUM_GPUS)
 
         if self.time_self:
             start_time = time.time()

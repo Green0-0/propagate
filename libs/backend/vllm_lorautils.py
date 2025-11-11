@@ -7,6 +7,7 @@ import torch
 from ray.util import collective
 
 from libs.genome import Genome
+from libs.optimizers import Optimizer
 
 class WorkerExtension:
     def self_report_lora_params_sanity_check(self):
@@ -243,7 +244,7 @@ class WorkerExtension:
         return True
 
     @torch.inference_mode()
-    def perturb_self_weights_all(self, genome: Genome, target: str):
+    def update_weights(self, optimizer: Optimizer, target: str):
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 
@@ -252,28 +253,15 @@ class WorkerExtension:
         sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
 
         for aid, _lora_model in sorted_adapters:
+            rand_counter = 0
             weights = self._collect_gpu_lora_tensors(aid)
-            for seed, weight in zip(genome.seeds, genome.seed_weights):
-                rand_counter = 0
-                for name, (lora_a, lora_b) in sorted(weights.items()):
-                    if "a" in target.lower():
-                        gen = torch.Generator(device=lora_a.device)
-                        gen.manual_seed(int(seed) + rand_counter)
-                        rand_counter += 1
-
-                        noise = torch.randn(lora_a.shape, generator=gen, device=lora_a.device, dtype=lora_a.dtype)
-                        noise.mul_(weight)
-                        lora_a.data.add_(noise)
-                        del noise
-                    if "b" in target.lower():
-                        gen = torch.Generator(device=lora_b.device)
-                        gen.manual_seed(int(seed) + rand_counter)
-                        rand_counter += 1
-
-                        noise = torch.randn(lora_b.shape, generator=gen, device=lora_b.device, dtype=lora_b.dtype)
-                        noise.mul_(weight)
-                        lora_b.data.add_(noise)
-                        del noise
+            for name, (lora_a, lora_b) in sorted(weights.items()):
+                if "a" in target.lower():
+                    optimizer.step_update(lora_a.data, rand_counter)
+                    rand_counter += 1
+                if "b" in target.lower():
+                    optimizer.step_update(lora_b.data, rand_counter)
+                    rand_counter += 1
                 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
