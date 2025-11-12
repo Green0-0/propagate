@@ -235,7 +235,6 @@ class MuonOpt(MomentumOpt):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             total_noise.add_(noise, alpha=weight)
-        update_direction = None
         if tensor.ndim == 2:
             tensor.add_(self.newtonschulz5(total_noise), alpha=weight)
         else:
