@@ -67,13 +67,22 @@ class VLLMBackend(Backend):
 
         if self.NUM_GPUS > 1:
             print("#-- Initializing Ray Collective group for GPU sync --#")
+            """
             master_address = get_ip()
             master_port = get_open_port()
             ray.get([self.inference_engines[i].collective_rpc.remote("init_inter_engine_group", args=(master_address, master_port, i, self.NUM_GPUS)) for i in range(self.NUM_GPUS)])
+            """
+            ray.get([llm.collective_rpc.remote("init_collective_group", args=(self.NUM_GPUS, rank,)) for rank, llm in enumerate(self.inference_engines)])
         else:
             print("#-- Skipping collective group (1 GPU) --#")
 
         def cleanup():
+            if self.NUM_GPUS > 1:
+                try:
+                    ray.get([llm.collective_rpc.remote("destroy_collective_group") for llm in self.inference_engines])
+                    print("\n#-- Collective group destroyed --#")
+                except Exception as e:
+                    print(f"#-- Error destroying collective group: {e} --#")      
             for llm in self.inference_engines:
                 try:
                     ray.kill(llm)
@@ -104,7 +113,8 @@ class VLLMBackend(Backend):
         ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer,)) for llm in self.inference_engines])
 
         if self.NUM_GPUS > 1:
-            ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
+            #ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
+             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
         """
@@ -156,7 +166,8 @@ class VLLMBackend(Backend):
                 start_time = end_time
                 
         if self.NUM_GPUS > 1:
-            ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
+            #ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
+             ray.get([llm.collective_rpc.remote("perform_all_reduce_sync") for llm in self.inference_engines])
             
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
