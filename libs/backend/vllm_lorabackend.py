@@ -40,11 +40,14 @@ class VLLMBackendLoRA(Backend):
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
         os.environ.pop("RAY_GCS_SERVER_ADDRESS", None)
+        pass_gpu_fraction = str(self.GPU_FRACTION_VLLM_WORKER)
         #--------------------------------------------------------#
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
         class MyLLM(LLM):
             def __init__(self, *args, **kwargs):
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+                os.environ["VLLM_RAY_PER_WORKER_GPUS"] = pass_gpu_fraction
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 super().__init__(*args, **kwargs)
 
@@ -157,10 +160,12 @@ class VLLMBackendLoRA(Backend):
                 scheduling_strategy=strategy,
             )(MyLLM).remote(
                 model=self.model_name,
-                worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
+                worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
                 dtype="float16",
+                enable_prefix_caching=False,
+                enforce_eager=False,
                 gpu_memory_utilization=self.GPU_FRACTION_VLLM_WORKER,
                 enable_lora=True,
                 max_loras=max_loras_per_worker,
