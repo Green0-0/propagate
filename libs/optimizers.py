@@ -62,7 +62,7 @@ class Optimizer(ABC):
         if sched.startswith("cosine"):
             return self.learning_rate * 0.5 * (1.0 + math.cos(math.pi * t))
         if sched.startswith("exponential"):
-            return self.learning_rate * math.exp(-2 * math.sqrt(t/(self.total_steps - self.warmup_steps)))
+            return self.learning_rate * math.exp(-2 * math.sqrt(t))
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
     
 class SimpleOpt(Optimizer):
@@ -224,7 +224,7 @@ class MomentumOpt(Optimizer):
         self.rep_genome = Genome()
 
 class MuonOpt(MomentumOpt):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_seeds = 2000, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "MuonOptimizer"):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_seeds = 300, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "MuonOptimizer"):
         super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, optimizer_name=optimizer_name)
         self.momentum = momentum
         self.velocity_seeds = OrderedDict()
