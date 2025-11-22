@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import Any, List
 from libs.backend.backend_abc import Backend
 from libs.datasets.dataset import Dataset
 from libs.optimizers import Optimizer
@@ -176,9 +176,77 @@ class SimpleTrainer:
                     mirrored_genomes.append(genome.get_mirrored())
                 self.genomes.extend(mirrored_genomes)
 
-    def save_model_to_disk(self, filepath: str):
-        self.backend.save_weights_to_disk(filepath)
-
     def save_model_seeds(self, filepath: str):
-        with open(filepath, "w") as f:
-            json.dump(self.optimizer.get_update_history(), f)
+        history = self.optimizer.get_update_history()
+
+        def serialize_structure(obj):
+            if isinstance(obj, Genome):
+                return {
+                    "seeds": obj.seeds,
+                    "seed_weights": obj.seed_weights,
+                    "historical_rewards": obj.historical_rewards,
+                    "starting_index": obj.starting_index,
+                    "__is_genome__": True
+                }
+            elif isinstance(obj, list):
+                return [serialize_structure(item) for item in obj]
+            elif isinstance(obj, tuple):
+                return tuple(serialize_structure(item) for item in obj)
+            elif isinstance(obj, dict):
+                return {k: serialize_structure(v) for k, v in obj.items()}
+            else:
+                return obj
+
+        serializable_history = serialize_structure(history)
+
+        try:
+            with open(filepath, "w") as f:
+                json.dump(serializable_history, f, indent=4)
+            print(f"#-- Successfully saved model seeds to {filepath} --#")
+        except Exception as e:
+            print(f"#-- Error saving model seeds: {e} --#")
+
+    def restore_model(self, filepath: str):        
+        try:
+            history = self.load_genome_history(filepath)
+            if not history:
+                print(f"#-- No history found in {filepath} or file is empty. --#")
+                return
+
+            self.optimizer.restore_from_history(history, self.backend)
+            
+            if isinstance(history, list):
+                 self.iteration_count = len(history)
+            
+            print(f"#-- Successfully loaded model seeds from {filepath}. Resuming from iteration {self.iteration_count} --#")
+        except Exception as e:
+            print(f"#-- Error loading model seeds: {e} --#")
+
+    def load_genome_history(self, filepath: str) -> Any:
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print(f"#-- File {filepath} not found. --#")
+            return []
+
+        def reconstruct_structure(obj):
+            if isinstance(obj, dict):
+                if obj.get("__is_genome__") is True or ("seeds" in obj and "seed_weights" in obj):
+                    genome = Genome()
+                    genome.seeds = obj.get("seeds", [])
+                    genome.seed_weights = obj.get("seed_weights", [])
+                    genome.historical_rewards = obj.get("historical_rewards", [float('-inf')] * len(genome.seeds))
+                    genome.starting_index = obj.get("starting_index", 0)
+                    return genome
+                
+                return {k: reconstruct_structure(v) for k, v in obj.items()}
+            
+            elif isinstance(obj, list):
+                return [reconstruct_structure(item) for item in obj]
+            
+            else:
+                return obj
+
+        history = reconstruct_structure(data)
+        return history

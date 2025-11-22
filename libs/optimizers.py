@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import copy
-from typing import List, Dict
+from typing import Any, List, Dict
 from collections import OrderedDict
 
 import torch
@@ -38,7 +38,7 @@ class Optimizer(ABC):
         pass
 
     @abstractmethod
-    def get_update_history(self):
+    def get_update_history(self) -> Any:
         """Returns a list of lists of genomes representing the history of updates."""
         pass
 
@@ -129,7 +129,7 @@ class SimpleOpt(Optimizer):
     def get_representative(self) -> Genome:
         return self.rep_genome
     
-    def get_update_history(self) -> List[List[Genome]]:
+    def get_update_history(self) -> List[Genome]:
         return self.update_history
     
     def restore_from_history(self, history, backend):
@@ -147,10 +147,13 @@ class MomentumOpt(Optimizer):
         self.momentum = momentum
         self.velocity_seeds = OrderedDict()
         self.cutoff_seeds = cutoff_seeds
+        self.last_lr = 0
+        self.force_disable_lr = False
 
     def update_self(self, genomes: List[Genome], current_step: int):
         self.rep_genome = Genome()
-        lr = self.get_lr(current_step)
+        self.last_lr = self.get_lr(current_step)
+        lr_used = self.last_lr if not self.force_disable_lr else 1.0
         for seed in self.velocity_seeds:
             self.velocity_seeds[seed] *= self.momentum
        
@@ -173,9 +176,9 @@ class MomentumOpt(Optimizer):
                 else:
                     new_seed_value = 0
                     if self.norm_by_mean:
-                        new_seed_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
+                        new_seed_value = math.copysign(1, weight) * lr_used * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
                     else:
-                        new_seed_value = math.copysign(1, weight) * lr * (1/len(genomes)) * g.historical_rewards[-1]
+                        new_seed_value = math.copysign(1, weight) * lr_used * (1/len(genomes)) * g.historical_rewards[-1]
                     if self.norm_by_stddev:
                         new_seed_value /= (reward_stddev + 1e-8)
                     if seed in self.velocity_seeds:
@@ -226,20 +229,20 @@ class MuonOpt(MomentumOpt):
         self.momentum = momentum
         self.velocity_seeds = OrderedDict()
         self.cutoff_seeds = cutoff_seeds
+        self.force_disable_lr = True
 
     def step_update(self, tensor: torch.Tensor, random_offset: int):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
-        total_noise = torch.empty_like(tensor)
+        total_noise = torch.zeros_like(tensor)
         for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             total_noise.add_(noise, alpha=weight)
         if tensor.ndim == 2:
-            tensor.add_(self.newtonschulz5(total_noise), alpha=weight)
+            tensor.add_(self.newtonschulz5(total_noise), alpha=self.last_lr)
         else:
-            tensor.add_(total_noise, alpha=weight)
-        
+            tensor.add_(total_noise, alpha=self.last_lr)
         del noise
         del total_noise
 
