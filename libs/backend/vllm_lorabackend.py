@@ -219,21 +219,57 @@ class VLLMBackendLoRA(Backend):
             print(f"#-- Initializing rank {self.lora_rank} LoRA adapters with zeros --#")
             lora_cfg = LoraConfig(
                 r=self.lora_rank,
-                lora_alpha=2 * self.lora_rank,
+                lora_alpha=1,
                 target_modules=default_target_modules,
+                use_rslora=True,
+                init_lora_weights=False
             )
             peft_model = get_peft_model(base_model, lora_cfg)
             with torch.no_grad():
                 for name, param in peft_model.named_parameters():
                     if "lora_" in name:
                         param.data.zero_()
+        elif self.init_lora_weights == "symmetric":
+            assert self.lora_rank % 2 == 0, "Rank must be even for symmetric cancellation."
+            print(f"#-- Initializing rank {self.lora_rank} rsLoRA adapters with Symmetric Cancellation --#")
+            lora_cfg = LoraConfig(
+                r=self.lora_rank,
+                lora_alpha=1,
+                use_rslora=True,
+                target_modules=default_target_modules,
+                init_lora_weights=False
+            )
+            
+            peft_model = get_peft_model(base_model, lora_cfg)
+
+            optimal_std = math.sqrt(0.5) 
+            half_rank = self.lora_rank // 2
+            update_num = 0
+            with torch.no_grad():
+                for name, module in peft_model.named_modules():
+                    if hasattr(module, "lora_A") and hasattr(module, "lora_B"):
+                        adapter_name = "default" 
+                        if adapter_name in module.lora_A:
+                            update_num += 1
+                            d_out = module.lora_B[adapter_name].weight.shape[0]
+                            d_in = module.lora_A[adapter_name].weight.shape[1]
+                            U = torch.randn(d_out, half_rank, dtype=torch.float16) * optimal_std
+                            V = torch.randn(half_rank, d_in, dtype=torch.float16) * optimal_std
+                            B_init = torch.cat([U, -U], dim=1)
+                            A_init = torch.cat([V, V], dim=0)
+                            
+                            module.lora_B[adapter_name].weight.copy_(B_init)
+                            module.lora_A[adapter_name].weight.copy_(A_init)
+
+            print(f"#-- Applied symmetric init (std={optimal_std:.4f}) to {update_num} adapters. --#")
         else:
             print(f"#-- Initializing rank {self.lora_rank} LoRA adapters with {self.init_lora_weights} --#")
             lora_cfg = LoraConfig(
                 r=self.lora_rank,
-                lora_alpha=2 * self.lora_rank,
+                lora_alpha=1,
                 target_modules=default_target_modules,
                 init_lora_weights=self.init_lora_weights,
+                use_rslora=True
             )
             peft_model = get_peft_model(base_model, lora_cfg)
 
