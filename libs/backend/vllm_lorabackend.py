@@ -164,7 +164,7 @@ class VLLMBackendLoRA(Backend):
                 gpu_memory_utilization=self.GPU_FRACTION_VLLM_WORKER,
                 enable_lora=True,
                 max_loras=max_loras_per_worker,
-                max_lora_rank=self.lora_rank,
+                max_lora_rank=max(self.lora_rank, 8),
                 max_cpu_loras=1000,
                 max_model_len=self.max_model_len,
             )
