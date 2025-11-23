@@ -143,11 +143,10 @@ class SimpleTrainer:
             self.iteration_count += 1
 
             start_time = time.time()
-            inputs = self.dataset.next()
+            inputs = self.dataset.next(population_size=self.population_size, mirror=self.mirror)
             self.backend.generate_outputs(self.genomes, self.dataset.suffix, inputs)
 
-            for genome in self.genomes:
-                self.dataset.score(genome)
+            self.dataset.score_all(self.genomes)
 
             end_time = time.time()
 
@@ -155,18 +154,19 @@ class SimpleTrainer:
             self.log_train_stats(self.genomes, end_time - start_time)
 
             self.optimizer.update_self(self.genomes, self.iteration_count)
-            new_genome = self.optimizer.get_representative()
+            self.backend.update(self.optimizer)
+
+            new_genome = Genome()
 
             if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
                 start_time = time.time()
                 prompts = self.dataset.get_test_set()
                 self.backend.generate_outputs([new_genome], self.dataset.suffix, prompts)
-                self.dataset.score(new_genome)
+                self.dataset.score_all([new_genome])
                 end_time = time.time()
                 print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
                 self.log_val_stats(new_genome, end_time - start_time)
-
-            self.backend.update(self.optimizer)
+            
             self.genomes = [Genome() for _ in range(self.population_size)]
             for genome in self.genomes:
                 genome.mutate_seed(self.optimizer.seed_weight)

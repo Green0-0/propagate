@@ -14,6 +14,7 @@ def is_integer_string(s: str) -> bool:
 
 
 def load_oreal_rl_prompts_dataset(batch_size: int = 200, split: str = "train") -> Dataset:
+    raise NotImplementedError("OREAL-RL-Prompts dataset loading is currently disabled.")
     print("Loading OREAL-RL-Prompts dataset...")
     hf_data = load_dataset("internlm/OREAL-RL-Prompts", split=split)
     

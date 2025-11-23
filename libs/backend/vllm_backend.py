@@ -110,28 +110,34 @@ class VLLMBackend(Backend):
         if self.NUM_GPUS > 1:
             ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
 
-    def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
+    def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[List[Dict[str, str]]]]):
         """
         Generate outputs based on the genome and inputs.
         Updates the genomes with their new outputs.
         """
+        assert len(genomes) == len(inputs), "Number of genomes must match number of input sets."
         prompts = []
         for i in inputs:
-            s = self.tokenizer.apply_chat_template(i, tokenize=False, add_generation_prompt=True)
-            if suffix is not None:
-                s = s + suffix
-            prompts.append(s)
+            prompt_genome = []
+            for j in i:
+                s = self.tokenizer.apply_chat_template(j, tokenize=False, add_generation_prompt=True)
+                if suffix is not None:
+                    s = s + suffix
+                prompt_genome.append(s)
+            prompts.append(prompt_genome)
 
         gs = iter(genomes)
+        ds = iter(prompts)
         inflight = {}
 
         for eng_idx, llm in enumerate(self.inference_engines):
             try:
                 genome = next(gs)
+                prompt_set = next(ds)
             except StopIteration:
                 break
             ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome,)))
-            handle, start_ts = self.evaluate_countdown_handle(llm, prompts)
+            handle, start_ts = self.evaluate_countdown_handle(llm, prompt_set)
             inflight[handle] = {"engine": llm, "engine_idx": eng_idx, "genome": genome, "start_ts": start_ts}
 
         start_time = time.time()
@@ -149,10 +155,11 @@ class VLLMBackend(Backend):
             ray.get(llm.collective_rpc.remote("restore_self_weights", args=(genome,)))
             try:
                 genome = next(gs)
+                prompts_set = next(ds)
             except StopIteration:
                 continue
             ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome,)))
-            handle, start_ts = self.evaluate_countdown_handle(llm, prompts)
+            handle, start_ts = self.evaluate_countdown_handle(llm, prompts_set)
             inflight[handle] = {"engine": llm, "engine_idx": meta["engine_idx"], "genome": genome, "start_ts": start_ts}
             if self.time_self:
                 end_time = time.time()

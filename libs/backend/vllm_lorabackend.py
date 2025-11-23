@@ -6,6 +6,7 @@ from libs.backend.backend_abc import Backend
 import signal
 import sys
 import os
+from libs.trainer import SimpleTrainer
 import ray
 import torch
 import time 
@@ -35,7 +36,7 @@ class VLLMBackendLoRA(Backend):
         if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
             raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
         
-    def startup(self, trainer):
+    def startup(self, trainer: SimpleTrainer):
         """Initializes the vLLM backend with Ray actors and placement groups."""
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -66,7 +67,7 @@ class VLLMBackendLoRA(Backend):
                 # Map request_id -> (genome_idx, prompt_idx)
                 req_to_idx = {}
                 # Results buffer
-                results = [[None for _ in range(len(prompts))] for _ in range(len(lora_specs))]
+                results = []
 
                 # Track per-request generated token counts to compute accurate tok/s
                 prev_gen_tokens = {}  # rid -> last seen generated token count
@@ -74,19 +75,20 @@ class VLLMBackendLoRA(Backend):
                 completed = 0
 
                 # Enqueue all requests
-                for g_idx, spec in enumerate(lora_specs):
+                for g_idx, (spec, genome_prompts) in enumerate(zip(lora_specs, prompts)):
+                    results.append([None] * len(genome_prompts))
                     lora_req = LoRARequest(spec["name"], spec["id"], spec["path"])
-                    for p_idx, prompt in enumerate(prompts):
+                    for p_idx, single_prompt_str in enumerate(genome_prompts):
                         rid = f"{g_idx}:{p_idx}:{uuid4().hex}"
                         engine.add_request(
                             request_id=rid,
-                            prompt=prompt,
+                            prompt=single_prompt_str,
                             params=sampling_params, 
                             lora_request=lora_req,
                         )
+                        
                         req_to_idx[rid] = (g_idx, p_idx)
                         prev_gen_tokens[rid] = 0
-
                 remaining = len(req_to_idx)
                 start_t = time.perf_counter()
 
@@ -151,6 +153,8 @@ class VLLMBackendLoRA(Backend):
         strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
         
         self.population_size = trainer.population_size
+        if trainer.mirror:
+            self.population_size = self.population_size * 2
         max_loras_per_worker = math.ceil(self.population_size / self.NUM_GPUS)
 
         self.inference_engines = [
@@ -322,21 +326,22 @@ class VLLMBackendLoRA(Backend):
             self.lora_perturb_target = "a-"
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
+        assert len(genomes) == len(inputs), "Number of genomes must match number of input sets."
         if len(genomes) > self.population_size:
             raise ValueError(f"Population size {len(genomes)} exceeds max population size {self.population_size} for this backend.")
         
         prompts = []
         for i in inputs:
-            s = self.tokenizer.apply_chat_template(
-                i,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            if suffix is not None:
-                s = s + suffix
-            prompts.append(s)
+            prompt_genome = []
+            for j in i:
+                s = self.tokenizer.apply_chat_template(j, tokenize=False, add_generation_prompt=True)
+                if suffix is not None:
+                    s = s + suffix
+                prompt_genome.append(s)
+            prompts.append(prompt_genome)
 
         genome_chunks = np.array_split(genomes, self.NUM_GPUS)
+        prompt_chunks = np.array_split(prompts, self.NUM_GPUS)
 
         if self.time_self:
             start_time = time.time()
@@ -363,6 +368,7 @@ class VLLMBackendLoRA(Backend):
 
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
+            my_prompts = prompt_chunks[eng_idx]
             if len(my_genomes) == 0:
                 continue
 
@@ -379,7 +385,7 @@ class VLLMBackendLoRA(Backend):
                 lora_specs.append({"name": local_lora_name, "id": local_lora_id, "path": lora_path})
 
             h = llm.generate_multi_lora.remote(
-                prompts,
+                my_prompts,
                 self.sampler,
                 lora_specs,
                 self.use_tqdm

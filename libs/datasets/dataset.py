@@ -1,45 +1,63 @@
 from typing import Callable, Dict, List, Tuple
 
+from libs import genome
 from libs.genome import Genome
-
-import random
+from reward import RewardGenerator
 
 class Dataset:
     batch_size: int
-    pairs_train: List[Tuple[List[Dict[str, str]], Callable[[str], float]]]
-    pairs_test: List[Tuple[List[Dict[str, str]], Callable[[str], float]]]
+
+    # A list of data pairs: (input in ShareGPT format, answer reward function, format reward function)
+    pairs_train: List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]
+    pairs_test: List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]
     suffix: str
     
     i: int
-    last_batch: Tuple[List[List[Dict[str, str]]], List[Callable[[str], float]]]
+    last_batch: List[Tuple[List[List[Dict[str, str]]], List[Callable[[str], float]], List[Callable[[str], float]]]]
     
     def __init__(
         self,
         batch_size: int,
         suffix: str,
-        pairs_train: List[Tuple[List[Dict[str, str]], Callable[[str], float]]],
+        dataset_input_key: str,
+        dataset_pairs: List[Dict],
+        answer_reward: RewardGenerator,
+        format_reward: RewardGenerator,
+        force_reuse_batches: bool = False,
+        reward_func_ratio: float = 0.1,
+        passk: int = 1,
+        passk_proportion: float = 0.1,
+        passk_minimum: float = 0.9,                                                              
     ):
-        """Initialize the Dataset.
-        Warning: Scores should always be positive or zero, or logical errors will occur.
-
-        Args:
-            batch_size (int): The number of pairs to include in each batch.
-            suffix (str): The suffix to append to each input text.
-            pairs (List[Tuple[List[Dict[str, str]], Callable[[str], float]]]): The input-output pairs for the dataset, along with an associated scoring function.
-        """
         self.batch_size = batch_size
-        self.pairs_train = pairs_train
         self.suffix = suffix
         self.i = 0
+        self.force_reuse_batches = force_reuse_batches
+        self.reward_func_ratio = reward_func_ratio
 
-    def next(self) -> List[List[Dict[str, str]]]:
+        """Generalized pass@k with reward shaping works as follows:
+        For each genome, we create 'passk' outputs for each question.
+        For each genome where the answer reward exceeds 'passk_minimum', we consider this as correct.
+        If the proportion of correct genomes is at least 'passk_proportion', we consider the batch as passed.
+        If the genome passes that question, then its score on each output is the maximum reward it received on that question. 
+        Ie. if it received a partial reward of 0.95, 0.6, 0.6, 0.6, 0.1 across passk@5 outputs with a minimum passing score of 0.9 and a passing proportion of 0.1, then all 5 outputs receive a score of 0.95.
+        Note: Pass@k is ONLY used for training pairs, not for testing pairs, which are always tested zero-shot."""
+        self.passk = passk
+        self.passk_proportion = passk_proportion
+        self.passk_minimum = passk_minimum
+
+        self.pairs_train = []
+        for pair in dataset_pairs:
+            self.pairs_train.append((pair[dataset_input_key], answer_reward.build_reward_function(pair), format_reward.build_reward_function(pair)))
+
+    def _get_next_batch(self) -> List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]:
         """
         Return the next `batch_size` entries from the dataset, wrapping around
         when the end of the list is reached.
 
         Output
         ------
-        A list of input texts in ShareGPT format.
+        The subset of pairs in ShareGPT format.
         """
         n_pairs = len(self.pairs_train)
         if n_pairs == 0:
@@ -56,35 +74,91 @@ class Dataset:
 
         self.i = stop % n_pairs
 
-        dict_lists, funcs = zip(*batch)
-        self.last_batch = (list(dict_lists), list(funcs))
-        return self.last_batch[0]
+        # Duplicate each entry 'passk' times for pass@k
+        expanded_batch = []
+        for entry in batch:
+            for _ in range(self.passk):
+                expanded_batch.append(entry)
+        batch = expanded_batch
+        return batch
     
-    def get_test_set(self) -> List[List[Dict[str, str]]]:
+    def next(self, population_size: int, mirror: bool) -> List[List[List[Dict[str, str]]]]:
+        """
+        Return a separate batch for each member of the population.
+
+        Output
+        ------
+        A list of batches, each batch being a list of input texts in ShareGPT format.
+        """
+        self.last_batch = []
+        all_inputs = []
+        self.last_batch_is_train = True
+        if self.force_reuse_batches:
+            batch = self._get_next_batch()
+            dict_lists, answer_funcs, reward_funcs = zip(*batch)
+            all_inputs = [list(dict_lists) for _ in range(population_size)]
+            self.last_batch = [(list(dict_lists), list(answer_funcs), list(reward_funcs)) for _ in range(population_size)]
+        else:
+            for _ in range(population_size):
+                batch = self._get_next_batch()
+                dict_lists, answer_funcs, reward_funcs = zip(*batch)
+                self.last_batch.append((list(dict_lists), list(answer_funcs), list(reward_funcs)))
+                all_inputs.append(list(dict_lists))
+        if mirror:
+            # Double the number of batches because the effective population size is doubled, ie. [Genome List | Mirror Genome List] so we need [Batch List | Batch List]
+            all_inputs = all_inputs * 2
+            self.last_batch = self.last_batch * 2
+        return all_inputs
+
+    def get_test_set(self) -> List[List[List[Dict[str, str]]]]:
         """
         Return the entire test set.
         """
+        self.last_batch_is_train = False
         if not self.pairs_test or len(self.pairs_test) == 0:
             raise ValueError("Test set is empty or not defined. Generate test split first.")
-        dict_lists, funcs = zip(*self.pairs_test)
-        self.last_batch = (list(dict_lists), list(funcs))
-        return self.last_batch[0]
-
-    def score(self, genome: Genome):
+        dict_lists, answer_funcs, format_funcs = zip(*self.pairs_test)
+        self.last_batch = [(list(dict_lists), list(answer_funcs), list(format_funcs))]
+        return [list(dict_lists)]
+    
+    def score_all(self, genomes: List[Genome]):
         """
-        Compute the score of the given genome based on the last batch. Update the genome's reward history, and the set of its latest rewards.
+        Compute the scores of all genomes based on the last batch. Update each genome's reward history, and the set of its latest rewards.
         """
-        if not self.last_batch:
+        if not self.last_batch or len(self.last_batch) == 0:
             raise ValueError("No last batch available. Score should be done on a batch after outputs are generated.")
-        if not genome.latest_outputs:
-            raise ValueError("Genome does not have outputs for the last batch.")
-        if len(genome.latest_outputs) != len(self.last_batch[0]):
-            raise ValueError("Genome outputs do not match the last batch size.")
-        _, funcs = self.last_batch
-        
-        genome.latest_rewards = [func(output) for func, output in zip(funcs, genome.latest_outputs)]
-        mean_reward = sum(genome.latest_rewards) / len(genome.latest_rewards)
-        genome.historical_rewards.append(mean_reward)
+        for i, genome in enumerate(genomes):
+            if not genome.latest_outputs:
+                raise ValueError("Genome does not have outputs for the last batch.")
+            if len(genome.latest_outputs) != len(self.last_batch[i][0]):
+                raise ValueError("Genome outputs do not match the last batch size.")
+            _, answer_funcs, format_funcs = self.last_batch[i]
+            latest_rewards = [
+                (answer_func(output), format_func(output))
+                for output, answer_func, format_func in zip(genome.latest_outputs, answer_funcs, format_funcs)
+            ]
+            if self.last_batch_is_train:
+                # Compute pass@k adjusted rewards per question for the total batch
+                # Count the number of passing outputs per question, and if that exceeds the passk_proportion, assign max reward to all outputs for that question
+                # Apply the format function afterwards
+                adjusted_rewards = []
+                for j in range(0, len(latest_rewards), self.passk):
+                    question_rewards = latest_rewards[j:j+self.passk]
+                    n_passing = sum(1 for r in question_rewards if r[0] >= self.passk_minimum)
+                    proportion_passing = n_passing / self.passk
+                    adjusted_rewards.extend(question_rewards)
+                    if proportion_passing >= self.passk_proportion:
+                        max_reward = max(r[0] for r in question_rewards)
+                        for k in range(self.passk):
+                            adjusted_rewards[j + k] = (max_reward, question_rewards[k][1])
+            else:
+                adjusted_rewards = latest_rewards
+            genome.latest_rewards = [
+                ans_reward + fmt_reward
+                for ans_reward, fmt_reward in adjusted_rewards
+            ]
+            mean_reward = sum(genome.latest_rewards) / len(genome.latest_rewards)
+            genome.historical_rewards.append(mean_reward)
 
     def generate_test_split(self, test_fraction: float, fold_index: int = 1):
         """Generate a test split from the dataset.
@@ -103,32 +177,3 @@ class Dataset:
 
         self.pairs_train = pairs_train
         self.pairs_test = pairs_test
-
-def combine_datasets(datasets: List[Dataset], shuffle: bool = False) -> Dataset:
-    """Combine multiple datasets into a single dataset.
-
-    Args:
-        datasets (List[Dataset]): The datasets to combine.
-        shuffle (bool, optional): Whether to shuffle the combined dataset. Defaults to False.
-
-    Returns:
-        Dataset: The combined dataset.
-    """
-    combined_pairs_train = []
-    combined_pairs_test = []
-    for dataset in datasets:
-        combined_pairs_train.extend(dataset.pairs_train)
-        combined_pairs_test.extend(dataset.pairs_test)
-    if shuffle:
-        random.shuffle(combined_pairs_train)
-        random.shuffle(combined_pairs_test)
-    dataset = Dataset(
-        batch_size=datasets[0].batch_size,
-        suffix=datasets[0].suffix,
-        pairs_train=combined_pairs_train,
-    )
-    dataset.pairs_test = combined_pairs_test
-    return dataset
-    
-#def combine_datasets_smart(datasets: List[Dataset], shuffle: bool = False) -> Dataset:    
-#    pass
