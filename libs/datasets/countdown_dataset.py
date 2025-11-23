@@ -40,7 +40,7 @@ class AnswerRewardGenerator(RewardGenerator):
             return 0.0
         return reward_function
 
-def load_countdown_dataset(batch_size: int = 200, reward_func_ratio: float = 0.1, passk: int = 1, passk_proportion: float = 0.1, passk_minimum: float = 0.9) -> Dataset:
+def load_countdown_dataset(batch_size: int = 300, reward_func_ratio: float = 0.1, passk: int = 1, passk_proportion: float = 0.1, passk_minimum: float = 0.9) -> Dataset:
     json_path = "libs/datasets/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
