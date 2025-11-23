@@ -154,7 +154,7 @@ class Dataset:
             else:
                 adjusted_rewards = latest_rewards
             genome.latest_rewards = [
-                ans_reward + fmt_reward
+                (ans_reward * (1 - self.reward_func_ratio)) + (fmt_reward * self.reward_func_ratio)
                 for ans_reward, fmt_reward in adjusted_rewards
             ]
             mean_reward = sum(genome.latest_rewards) / len(genome.latest_rewards)
