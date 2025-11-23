@@ -2,7 +2,7 @@ from typing import Callable, Dict, List, Tuple
 
 from libs import genome
 from libs.genome import Genome
-from reward import RewardGenerator
+from libs.datasets.reward import RewardGenerator
 
 class Dataset:
     batch_size: int
