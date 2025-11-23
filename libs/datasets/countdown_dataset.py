@@ -1,6 +1,6 @@
 import json
 import re
-from reward import RewardGenerator, FormatRewardGenerator
+from libs.datasets.reward import RewardGenerator, FormatRewardGenerator
 from typing import Callable, List
 from libs.datasets.dataset import Dataset
 
