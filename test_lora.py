@@ -18,19 +18,19 @@ try:
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.7, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-")
+    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.5, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-")
     
     #optimizer = SimpleOpt(total_steps=250, learning_rate=3, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False)
-    #optimizer = MomentumOpt(total_steps=250, learning_rate=1.5, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False)
-    #optimizer = MuonOpt(total_steps=250, learning_rate=1.5, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False)
-    #optimizer = AdamOpt(total_steps=250, learning_rate=0.1, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False)
+    #optimizer = MomentumOpt(total_steps=250, learning_rate=1.5, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
+    #optimizer = MuonOpt(total_steps=250, learning_rate=10, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
+    optimizer = AdamOpt(total_steps=250, learning_rate=0.0001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
 
     trainer = SimpleTrainer(population_size=28,
                             mirror=True,
                             optimizer=optimizer,
                             backend=backend,
                             dataset=dataset,
-                            wandb_project="propagate_tests",
+                            wandb_project="propagate_optimizers",
                             validate_every=10,
                             print_samples=True,
     )

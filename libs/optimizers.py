@@ -283,22 +283,24 @@ class MuonOpt(MomentumOpt):
         raise NotImplementedError("MuonOpt does not support getting a representative genome.")
     
 class AdamOpt(MomentumOpt):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, beta2: float = 0.85, epsilon: float = 1e-8, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "AdamOptimizer", force_lora_alternating: bool = False):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, beta2: float = 0.85, epsilon: float = 1e-5, accumulate_fp32=True, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "AdamOptimizer", force_lora_alternating: bool = False):
         super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, optimizer_name=optimizer_name, force_lora_alternating=force_lora_alternating)
         self.beta2 = beta2
         self.epsilon = epsilon
         self.force_disable_lr = True
+        self.accumulate_fp32 = accumulate_fp32
 
     def step_update(self, tensor: torch.Tensor, random_offset: int, lr_scalar: float = 1):
         gen = torch.Generator(device=tensor.device)
         step = max(1, self.last_step)
         effective_step = step / 2 if self.force_lora_alternating else step
         correction = 1 - self.beta2 ** (effective_step / 2)
+        correction = max(correction, 1e-6)
 
         effective_beta2 = (1 - self.beta2) / correction
-        noise = torch.empty_like(tensor)
-        accumulator = torch.zeros_like(tensor)
-        second_moment = torch.zeros_like(tensor)
+        noise = torch.empty(tensor.shape, dtype=tensor.dtype, device=tensor.device)
+        accumulator = torch.zeros(tensor.shape, dtype=torch.float32 if self.accumulate_fp32 else tensor.dtype, device=tensor.device)
+        second_moment = torch.zeros(tensor.shape, dtype=torch.float32 if self.accumulate_fp32 else tensor.dtype, device=tensor.device)
         current_head_idx = len(self.velocity_seeds_steps) - 1
         for step_idx in reversed(range(len(self.velocity_seeds_steps))):
             if step_idx % 2 != current_head_idx % 2 and self.force_lora_alternating:
@@ -307,7 +309,7 @@ class AdamOpt(MomentumOpt):
             for seed, weight in self.velocity_seeds_steps[step_idx]:
                 gen.manual_seed(int(seed) + random_offset)
                 torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
-                accumulator.add_(noise, alpha=float(weight))
+                accumulator.add_(noise.to(torch.float32 if self.accumulate_fp32 else tensor.dtype), alpha=float(weight))
             accumulator.pow_(2)
             second_moment.add_(accumulator, alpha=effective_beta2)
             effective_beta2 *= self.beta2
@@ -316,8 +318,11 @@ class AdamOpt(MomentumOpt):
         for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
-            noise.mul_(second_moment)
-            tensor.add_(noise, alpha=float(weight * lr_scalar * self.last_lr))
+            update_step = noise.to(torch.float32 if self.accumulate_fp32 else tensor.dtype)
+            update_step.mul_(second_moment)
+            update_step.mul_(float(weight * lr_scalar * self.last_lr))
+            tensor.add_(update_step.to(tensor.dtype))
+            del update_step
         del noise
         del accumulator
         del second_moment
