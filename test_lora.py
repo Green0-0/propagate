@@ -3,6 +3,7 @@ from libs.datasets.countdown_dataset import load_countdown_dataset
 from libs.genome import Genome
 from libs.trainer import SimpleTrainer
 from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
+from libs.optimizers_th import TwoHalvesEstimator
 from vllm import SamplingParams
 
 import gc
@@ -18,12 +19,13 @@ try:
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.5, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-")
+    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.5, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True)
     
     #optimizer = SimpleOpt(total_steps=250, learning_rate=3, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False)
     #optimizer = MomentumOpt(total_steps=250, learning_rate=1.5, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
     #optimizer = MuonOpt(total_steps=250, learning_rate=10, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
-    optimizer = AdamOpt(total_steps=250, learning_rate=0.0001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
+    #optimizer = AdamOpt(total_steps=250, learning_rate=0.0001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
+    optimizer = TwoHalvesEstimator(total_steps=250, learning_rate=0.001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
 
     trainer = SimpleTrainer(population_size=28,
                             mirror=True,

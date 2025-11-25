@@ -20,8 +20,8 @@ class WorkerExtension:
     def update_weights(self, optimizer: Optimizer):
         """Update the model's weights using the provided optimizer."""
         rand_counter = 0
-        for _, p in self.model_runner.model.named_parameters():
-            optimizer.step_update(p.data, rand_counter)
+        for id, p in self.model_runner.model.named_parameters():
+            optimizer.step_update(p.data, rand_counter, id)
             rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()

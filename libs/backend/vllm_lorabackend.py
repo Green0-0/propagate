@@ -27,12 +27,13 @@ import gc
 from libs.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True):
         super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         self.lora_rank = lora_rank
         self.lora_perturb_target: str = lora_perturb_target
         self.init_lora_weights = init_lora_weights
         self.lora_model_source = lora_model_source
+        self.norm_scale_update = norm_scale_update
         if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
             raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
         
@@ -316,7 +317,7 @@ class VLLMBackendLoRA(Backend):
         
     def update(self, optimizer: Optimizer):
         """Update the model permanently with a genome as the source."""
-        ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer, self.lora_perturb_target)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer, self.lora_perturb_target, self.norm_scale_update)) for llm in self.inference_engines])
 
         ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
 

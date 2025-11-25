@@ -244,7 +244,7 @@ class WorkerExtension:
         return True
 
     @torch.inference_mode()
-    def update_weights(self, optimizer: Optimizer, target: str):
+    def update_weights(self, optimizer: Optimizer, target: str, norm_scale_update: bool):
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 
@@ -256,16 +256,18 @@ class WorkerExtension:
         for aid, _lora_model in sorted_adapters:
             rand_counter = 0
             weights = self._collect_gpu_lora_tensors(aid)
-            for _, (lora_a, lora_b) in sorted(weights.items()):
-                norm_a = torch.norm(lora_a)
-                norm_b = torch.norm(lora_b)
-                combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
-                layer_norm_scale = 1.0 / (combined_norm + eps)
+            for id, (lora_a, lora_b) in sorted(weights.items()):
+                layer_norm_scale = 1.0
+                if norm_scale_update:
+                    norm_a = torch.norm(lora_a)
+                    norm_b = torch.norm(lora_b)
+                    combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
+                    layer_norm_scale = 1.0 / (combined_norm + eps)
                 if "a" in target.lower():
-                    optimizer.step_update(lora_a.data, rand_counter, lr_scalar=float(layer_norm_scale))
+                    optimizer.step_update(lora_a.data, rand_counter, (aid, id, "a"), lr_scalar=float(layer_norm_scale))
                     rand_counter += 1
                 if "b" in target.lower():
-                    optimizer.step_update(lora_b.data, rand_counter, lr_scalar=float(layer_norm_scale))
+                    optimizer.step_update(lora_b.data, rand_counter, (aid, id, "b"), lr_scalar=float(layer_norm_scale))
                     rand_counter += 1
                 
         if torch.cuda.is_available():

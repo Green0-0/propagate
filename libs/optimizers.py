@@ -29,7 +29,7 @@ class Optimizer(ABC):
         pass
 
     @abstractmethod
-    def step_update(self, tensor: torch.Tensor, random_offset: int, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
         """Performs a step update on the provided tensor."""
         pass
 
@@ -121,7 +121,7 @@ class SimpleOpt(Optimizer):
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
         """Apply a single optimization step to the given tensor."""
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
@@ -223,7 +223,7 @@ class MomentumOpt(Optimizer):
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
         for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
@@ -249,7 +249,7 @@ class MuonOpt(MomentumOpt):
         super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, optimizer_name=optimizer_name, force_lora_alternating=force_lora_alternating)
         self.force_disable_lr = True
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
         total_noise = torch.zeros_like(tensor)
@@ -290,7 +290,7 @@ class AdamOpt(MomentumOpt):
         self.force_disable_lr = True
         self.accumulate_fp32 = accumulate_fp32
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
         gen = torch.Generator(device=tensor.device)
         step = max(1, self.last_step)
         effective_step = step / 2 if self.force_lora_alternating else step
