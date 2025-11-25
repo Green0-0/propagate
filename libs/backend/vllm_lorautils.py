@@ -252,15 +252,20 @@ class WorkerExtension:
 
         sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
 
+        eps = 1e-5
         for aid, _lora_model in sorted_adapters:
             rand_counter = 0
             weights = self._collect_gpu_lora_tensors(aid)
-            for name, (lora_a, lora_b) in sorted(weights.items()):
+            for _, (lora_a, lora_b) in sorted(weights.items()):
+                norm_a = torch.norm(lora_a)
+                norm_b = torch.norm(lora_b)
+                combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
+                layer_norm_scale = 1.0 / (combined_norm + eps)
                 if "a" in target.lower():
-                    optimizer.step_update(lora_a.data, rand_counter)
+                    optimizer.step_update(lora_a.data, rand_counter, lr_scalar=float(layer_norm_scale))
                     rand_counter += 1
                 if "b" in target.lower():
-                    optimizer.step_update(lora_b.data, rand_counter)
+                    optimizer.step_update(lora_b.data, rand_counter, lr_scalar=float(layer_norm_scale))
                     rand_counter += 1
                 
         if torch.cuda.is_available():
@@ -277,25 +282,36 @@ class WorkerExtension:
         sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
 
         if len(genomes) > len(sorted_adapters):
-            raise ValueError(
-                f"Received {len(genomes)} genomes but only {len(sorted_adapters)} adapters are available."
-            )
+            raise ValueError(f"Received {len(genomes)} genomes but only {len(sorted_adapters)} adapters are available.")
+        
+        self._norm_cache = {} 
+        eps = 1e-5
         for i, genome in enumerate(genomes):
-            aid, _lora_model = sorted_adapters[i]
+            aid, _ = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
 
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 rand_counter = 0
                 
-                for _, (lora_a, lora_b) in sorted(weights.items()):
+                for layer_name, (lora_a, lora_b) in sorted(weights.items()):
+                    cache_key = (aid, layer_name)
+                    if cache_key in self._norm_cache:
+                        layer_norm_scale = self._norm_cache[cache_key]
+                    else:
+                        norm_a = torch.norm(lora_a)
+                        norm_b = torch.norm(lora_b)
+                        combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
+                        
+                        layer_norm_scale = 1.0 / (combined_norm + eps)
+                        self._norm_cache[cache_key] = layer_norm_scale
+
                     if "a" in target.lower():
                         gen = torch.Generator(device=lora_a.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
 
                         noise = torch.randn(lora_a.shape, generator=gen, device=lora_a.device, dtype=lora_a.dtype)
-                        noise.mul_(weight)
-                        lora_a.data.add_(noise)
+                        lora_a.data.add_(noise, alpha=float(weight * layer_norm_scale))
                         del noise
 
                     if "b" in target.lower():
@@ -304,8 +320,7 @@ class WorkerExtension:
                         rand_counter += 1
 
                         noise = torch.randn(lora_b.shape, generator=gen, device=lora_b.device, dtype=lora_b.dtype)
-                        noise.mul_(weight)
-                        lora_b.data.add_(noise)
+                        lora_b.data.add_(noise, alpha=float(weight * layer_norm_scale))
                         del noise
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -334,15 +349,20 @@ class WorkerExtension:
             for seed, weight in zip(genome.seeds, genome.seed_weights):
                 rand_counter = 0
 
-                for _, (lora_a, lora_b) in sorted(weights.items()):
+                for layer_name, (lora_a, lora_b) in sorted(weights.items()):
+                    cache_key = (aid, layer_name)
+                    if hasattr(self, '_norm_cache') and cache_key in self._norm_cache:
+                        layer_norm_scale = self._norm_cache[cache_key]
+                    else:
+                        raise RuntimeError("Normalization cache not found during restore.")
+                    
                     if "a" in target.lower():
                         gen = torch.Generator(device=lora_a.device)
                         gen.manual_seed(int(seed) + rand_counter)
                         rand_counter += 1
 
                         noise = torch.randn(lora_a.shape, generator=gen, device=lora_a.device, dtype=lora_a.dtype)
-                        noise.mul_(weight)
-                        lora_a.data.sub_(noise)
+                        lora_a.data.sub_(noise, alpha=float(weight * layer_norm_scale))
                         del noise
 
                     if "b" in target.lower():
@@ -351,8 +371,7 @@ class WorkerExtension:
                         rand_counter += 1
 
                         noise = torch.randn(lora_b.shape, generator=gen, device=lora_b.device, dtype=lora_b.dtype)
-                        noise.mul_(weight)
-                        lora_b.data.sub_(noise)
+                        lora_b.data.sub_(noise, alpha=float(weight * layer_norm_scale))
                         del noise
         if torch.cuda.is_available():
             torch.cuda.synchronize()
