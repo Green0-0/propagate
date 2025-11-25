@@ -166,6 +166,9 @@ class TwoHalvesEstimator(Optimizer):
 
         if parameter_id not in self.layer_scales_history:
             self.layer_scales_history[parameter_id] = []
+        target_len = len(self.velocity_seeds_steps)
+        while len(self.layer_scales_history[parameter_id]) < (target_len - 1):
+            self.layer_scales_history[parameter_id].append(0.0)
         self.layer_scales_history[parameter_id].append(d_l)
         while len(self.layer_scales_history[parameter_id]) > len(self.velocity_seeds_steps):
             self.layer_scales_history[parameter_id].pop(0)
@@ -174,9 +177,12 @@ class TwoHalvesEstimator(Optimizer):
         
         m = torch.zeros_like(tensor)
         history_len = len(self.velocity_seeds_steps)
+        current_head_idx = len(self.velocity_seeds_steps) - 1
         for step_idx in reversed(range(history_len - 1)):
-            step_seeds = self.velocity_seeds_steps[step_idx]
             step_scale = self.layer_scales_history[parameter_id][step_idx]
+            if abs(step_scale) < 1e-9: 
+                continue
+            step_seeds = self.velocity_seeds_steps[step_idx]
             for seed, weight in step_seeds:
                 gen.manual_seed(int(seed) + random_offset)
                 torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise_buffer)
@@ -200,6 +206,8 @@ class TwoHalvesEstimator(Optimizer):
                 
             beta_eff = self.momentum * (max(0.0, cos) ** self.gamma)
             for i in range(history_len - 1):
+                if abs(self.layer_scales_history[parameter_id][i]) < 1e-9: 
+                    continue
                 self.layer_scales_history[parameter_id][i] *= beta_eff
             del flat_p
             del flat_m
