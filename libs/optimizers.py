@@ -29,7 +29,7 @@ class Optimizer(ABC):
         pass
 
     @abstractmethod
-    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         """Performs a step update on the provided tensor."""
         pass
 
@@ -121,7 +121,7 @@ class SimpleOpt(Optimizer):
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         """Apply a single optimization step to the given tensor."""
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
@@ -223,7 +223,7 @@ class MomentumOpt(Optimizer):
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
         for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
@@ -290,7 +290,7 @@ class AdamOpt(MomentumOpt):
         self.force_disable_lr = True
         self.accumulate_fp32 = accumulate_fp32
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         gen = torch.Generator(device=tensor.device)
         step = max(1, self.last_step)
         effective_step = step / 2 if self.force_lora_alternating else step

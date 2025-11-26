@@ -19,9 +19,12 @@ class WorkerExtension:
     @torch.inference_mode()
     def update_weights(self, optimizer: Optimizer):
         """Update the model's weights using the provided optimizer."""
+        # check if the worker has an optimizer state
+        if not hasattr(self, 'optimizer_state'):
+            self.optimizer_state = {}
         rand_counter = 0
         for id, p in self.model_runner.model.named_parameters():
-            optimizer.step_update(p.data, rand_counter, id)
+            optimizer.step_update(p.data, rand_counter, id, lr_scalar=float(1.0), state=self.optimizer_state)
             rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()

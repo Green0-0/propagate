@@ -65,7 +65,7 @@ class SteinOpt(Optimizer):
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         """Apply a single optimization step to the given tensor."""
         gen = torch.Generator(device=tensor.device)
         ghat = torch.zeros_like(tensor)
