@@ -11,7 +11,7 @@ from libs.optimizers import Optimizer
 import math
 
 class TwoHalvesEstimatorOpt(Optimizer):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, norm_by_stddev: bool = True, optimizer_name: str = "TwoHalvesEstimator", force_lora_alternating: bool = False, ema_decay: float = 0.9, tau: float = 1.0, epsilon: float = 1e-8, momentum: float = 0.7, gamma: float = 2, cutoff_steps: int = 20):
+    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, norm_by_stddev: bool = True, optimizer_name: str = "TwoHalvesEstimator", force_lora_alternating: bool = False, ema_decay: float = 0.9, tau: float = 1.0, epsilon: float = 1e-8, momentum: float = 0.9, gamma: float = 1, cutoff_steps: int = 20):
         super().__init__(optimizer_name, total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean, norm_by_stddev, force_lora_alternating)
         self.rep_genome_A = None
         self.rep_genome_B = None
