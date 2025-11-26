@@ -10,7 +10,7 @@ from libs.optimizers import Optimizer
 
 import math
 
-class TwoHalvesEstimator(Optimizer):
+class TwoHalvesEstimatorOpt(Optimizer):
     def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, norm_by_stddev: bool = True, optimizer_name: str = "TwoHalvesEstimator", force_lora_alternating: bool = False, ema_decay: float = 0.9, tau: float = 1.0, epsilon: float = 1e-8, momentum: float = 0.7, gamma: float = 2, cutoff_steps: int = 20):
         super().__init__(optimizer_name, total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean, norm_by_stddev, force_lora_alternating)
         self.rep_genome_A = None
@@ -28,8 +28,26 @@ class TwoHalvesEstimator(Optimizer):
         self.velocity_seeds_steps = []
         self.layer_scales_history = {}
 
+        self.total_layers_updated = 0
+        self.max_beff = 0.0
+        self.min_beff = float('inf')
+        self.max_beff_param_id = None
+        self.min_beff_param_id = None
+        self.total_beff = 0.0
+
+        self.total_v = 0.0
+        self.total_d = 0.0
+        self.max_v = 0.0
+        self.min_v = float('inf')
+        self.max_v_param_id = None
+        self.min_v_param_id = None
+        self.max_d = 0.0
+        self.min_d = float('inf')
+        self.max_d_param_id = None
+        self.min_d_param_id = None
+
     def get_representative(self) -> Genome:
-        raise NotImplementedError("TwoHalvesEstimator does not support a single representative genome.")
+        raise NotImplementedError("TwoHalvesEstimatorOpt does not support a single representative genome.")
 
     def _create_gradient_genome(self, genome_list: List[Genome], reward_mean: float, reward_stddev: float) -> Genome:
         rep = Genome()
@@ -82,6 +100,29 @@ class TwoHalvesEstimator(Optimizer):
         return rep
 
     def update_self(self, genomes: List[Genome], current_step: int):
+        # Print statistics
+        print(f"Total layers updated in last step: {self.total_layers_updated}")
+        print(f"Beff - Max: {self.max_beff} (Param ID: {self.max_beff_param_id}), Min: {self.min_beff} (Param ID: {self.min_beff_param_id}), Avg: {self.total_beff / max(1, self.total_layers_updated)}")
+        print(f"V - Max: {self.max_v} (Param ID: {self.max_v_param_id}), Min: {self.min_v} (Param ID: {self.min_v_param_id}), Avg: {self.total_v / max(1, self.total_layers_updated)}")
+        print(f"D - Max: {self.max_d} (Param ID: {self.max_d_param_id}), Min: {self.min_d} (Param ID: {self.min_d_param_id}), Avg: {self.total_d / max(1, self.total_layers_updated)}")
+        # Reset statistics
+        self.total_layers_updated = 0
+        self.max_beff = 0.0
+        self.min_beff = float('inf')
+        self.max_beff_param_id = None
+        self.min_beff_param_id = None
+        self.total_beff = 0.0
+        self.max_v = 0.0
+        self.min_v = float('inf')
+        self.max_v_param_id = None
+        self.min_v_param_id = None
+        self.total_v = 0.0
+        self.max_d = 0.0
+        self.min_d = float('inf')
+        self.max_d_param_id = None
+        self.min_d_param_id = None
+        self.total_d = 0.0
+
         self.current_step_lr = self.get_lr(current_step)
 
         all_rewards = [g.historical_rewards[-1] for g in genomes]
@@ -127,6 +168,8 @@ class TwoHalvesEstimator(Optimizer):
             self.velocity_seeds_steps.pop(0)
 
     def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+        self.total_layers_updated += 1
+        
         gen = torch.Generator(device=tensor.device)
         
         noise_buffer = torch.empty_like(tensor)
@@ -164,6 +207,22 @@ class TwoHalvesEstimator(Optimizer):
         phi_l = max(0.0, min(1.0, phi_l))
         d_l = phi_l / math.sqrt(v_smooth + self.epsilon)
 
+        # Record statistics
+        self.total_d += d_l
+        if d_l > self.max_d:
+            self.max_d = d_l
+            self.max_d_param_id = parameter_id
+        if d_l < self.min_d:
+            self.min_d = d_l
+            self.min_d_param_id = parameter_id
+        self.total_v += V_l
+        if V_l > self.max_v:
+            self.max_v = V_l
+            self.max_v_param_id = parameter_id
+        if V_l < self.min_v:
+            self.min_v = V_l
+            self.min_v_param_id = parameter_id
+
         if parameter_id not in self.layer_scales_history:
             self.layer_scales_history[parameter_id] = []
         target_len = len(self.velocity_seeds_steps)
@@ -177,7 +236,6 @@ class TwoHalvesEstimator(Optimizer):
         
         m = torch.zeros_like(tensor)
         history_len = len(self.velocity_seeds_steps)
-        current_head_idx = len(self.velocity_seeds_steps) - 1
         for step_idx in reversed(range(history_len - 1)):
             step_scale = self.layer_scales_history[parameter_id][step_idx]
             if abs(step_scale) < 1e-9: 
@@ -213,6 +271,15 @@ class TwoHalvesEstimator(Optimizer):
             del flat_m
         else:
             beta_eff = 0.0
+        
+        # Record beff statistics
+        self.total_beff += beta_eff
+        if beta_eff > self.max_beff:
+            self.max_beff = beta_eff
+            self.max_beff_param_id = parameter_id
+        if beta_eff < self.min_beff:
+            self.min_beff = beta_eff
+            self.min_beff_param_id = parameter_id
 
         grad_a.add(m, alpha=beta_eff)
         tensor.add_(grad_a, alpha=self.current_step_lr * lr_scalar)

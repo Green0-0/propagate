@@ -3,7 +3,7 @@ from libs.datasets.countdown_dataset import load_countdown_dataset
 from libs.genome import Genome
 from libs.trainer import SimpleTrainer
 from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
-from libs.optimizers_th import TwoHalvesEstimator
+from libs.optimizer_th import TwoHalvesEstimatorOpt
 from vllm import SamplingParams
 
 import gc
@@ -25,7 +25,7 @@ try:
     #optimizer = MomentumOpt(total_steps=250, learning_rate=1.5, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
     #optimizer = MuonOpt(total_steps=250, learning_rate=10, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
     #optimizer = AdamOpt(total_steps=250, learning_rate=0.0001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
-    optimizer = TwoHalvesEstimator(total_steps=250, learning_rate=0.001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
+    optimizer = TwoHalvesEstimatorOpt(total_steps=250, learning_rate=0.001, seed_weight=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
 
     trainer = SimpleTrainer(population_size=28,
                             mirror=True,
