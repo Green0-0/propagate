@@ -40,7 +40,7 @@ class AnswerRewardGenerator(RewardGenerator):
             return 0.0
         return reward_function
 
-def load_countdown_dataset(batch_size: int = 300, reward_func_ratio: float = 0.1, passk: int = 1, passk_proportion: float = 0.1, passk_minimum: float = 0.9) -> Dataset:
+def load_countdown_dataset(batch_size: int = 50, reward_func_ratio: float = 0.1, passk: int = 1, passk_proportion: float = 0.1, passk_minimum: float = 0.9, force_reuse_batches: bool = False) -> Dataset:
     json_path = "libs/datasets/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
@@ -63,4 +63,4 @@ def load_countdown_dataset(batch_size: int = 300, reward_func_ratio: float = 0.1
 
         pairs.append({"input": sharegpt_format, "numbers": item["numbers"], "target": item["target"]})
 
-    return Dataset(batch_size, suffix, "input", pairs, AnswerRewardGenerator(numbers_key="numbers", target_key="target"), FormatRewardGenerator(start_think_token="", end_think_token="</think>", start_answer_token="<answer>", end_answer_token="</answer>"), force_reuse_batches=False, reward_func_ratio=reward_func_ratio, passk=passk, passk_proportion=passk_proportion, passk_minimum=passk_minimum)
+    return Dataset(batch_size, suffix, "input", pairs, AnswerRewardGenerator(numbers_key="numbers", target_key="target"), FormatRewardGenerator(start_think_token="", end_think_token="</think>", start_answer_token="<answer>", end_answer_token="</answer>"), force_reuse_batches=force_reuse_batches, reward_func_ratio=reward_func_ratio, passk=passk, passk_proportion=passk_proportion, passk_minimum=passk_minimum)

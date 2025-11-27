@@ -1,3 +1,4 @@
+import random as rand
 from typing import Callable, Dict, List, Tuple
 
 from libs import genome
@@ -177,3 +178,94 @@ class Dataset:
 
         self.pairs_train = pairs_train
         self.pairs_test = pairs_test
+
+def _copy_dataset_config(source: Dataset) -> Dataset:
+    new_dataset = Dataset.__new__(Dataset)
+    new_dataset.batch_size = source.batch_size
+    new_dataset.suffix = source.suffix
+    new_dataset.force_reuse_batches = source.force_reuse_batches
+    new_dataset.reward_func_ratio = source.reward_func_ratio
+    new_dataset.passk = source.passk
+    new_dataset.passk_proportion = source.passk_proportion
+    new_dataset.passk_minimum = source.passk_minimum
+    
+    new_dataset.i = 0
+    new_dataset.last_batch = []
+    new_dataset.last_batch_is_train = True
+    new_dataset.pairs_train = []
+    new_dataset.pairs_test = []
+    return new_dataset
+
+def merge_dataset(datasets: List[Dataset], shuffle: bool = True) -> Dataset:
+    """
+    Merges a list of datasets by concatenating them.
+    Inherits configuration properties from the first dataset in the list.
+    """
+    if not datasets:
+        raise ValueError("Dataset list cannot be empty.")
+
+    new_dataset = _copy_dataset_config(datasets[0])
+    
+    new_dataset.pairs_train = []
+    for d in datasets:
+        new_dataset.pairs_train.extend(d.pairs_train)
+    
+    new_dataset.pairs_test = []
+    for d in datasets:
+        test_pairs = getattr(d, 'pairs_test', [])
+        if test_pairs:
+            new_dataset.pairs_test.extend(test_pairs)
+    
+    if shuffle:
+        rand.shuffle(new_dataset.pairs_train)
+        
+    return new_dataset
+
+def balanced_merge(datasets: List[Dataset]) -> Dataset:
+    """
+    Merges a list of datasets by interleaving them as evenly as possible based on their lengths.
+    This prevents sequences of the same dataset type which can cause overfitting.
+    
+    Algorithm:
+    Assigns each item a 'normalized position' in [0, 1] based on its index 
+    and the total length of its source dataset, then sorts by this position.
+    """
+    if not datasets:
+        raise ValueError("Dataset list cannot be empty.")
+
+    new_dataset = _copy_dataset_config(datasets[0])
+    
+    weighted_items = []
+    
+    for d in datasets:
+        length = len(d.pairs_train)
+        if length == 0:
+            continue
+            
+        for i, item in enumerate(d.pairs_train):
+            pos = (i + 0.5) / length
+            weighted_items.append((pos, item))
+        
+    weighted_items.sort(key=lambda x: x[0])
+    
+    new_dataset.pairs_train = [item for _, item in weighted_items]
+    
+    weighted_test = []
+    has_test_data = False
+    
+    for d in datasets:
+        test_pairs = getattr(d, 'pairs_test', [])
+        length = len(test_pairs)
+        if length == 0:
+            continue
+        
+        has_test_data = True
+        for i, item in enumerate(test_pairs):
+            pos = (i + 0.5) / length
+            weighted_test.append((pos, item))
+    
+    if has_test_data:
+        weighted_test.sort(key=lambda x: x[0])
+        new_dataset.pairs_test = [item for _, item in weighted_test]
+        
+    return new_dataset
