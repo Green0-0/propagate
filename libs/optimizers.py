@@ -249,7 +249,7 @@ class MuonOpt(MomentumOpt):
         super().__init__(total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating, optimizer_name="MuonOptimizer")
         self.force_disable_lr = True
 
-    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
+    def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
         total_noise = torch.zeros_like(tensor)
