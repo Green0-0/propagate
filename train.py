@@ -42,8 +42,7 @@ def load_datasets(batch_size: int = 50):
         answer_reward=MathVerifyRewardGenerator(target_answer_key="answer"),
         input_column="problem",
         target_column="answer",
-        force_reuse_batches=False,
-        passk=4
+        force_reuse_batches=False
     )
     
     mmlu_hf = load_dataset("cais/mmlu", "auxiliary_train", split="train")
@@ -115,10 +114,10 @@ def do_train(model_source = "Qwen/Qwen3-8B-Base",
 
     try:
         dataset = load_datasets(batch_size=batch_size)[target_dataset]
-        dataset.generate_test_split(test_fraction=0.005, fold_index=1)
+        dataset.generate_test_split(test_fraction=0.01, fold_index=1)
         if lora_model_source is None or lora_model_source == "":
             lora_model_source = model_source
-        sampler = SamplingParams(temperature=0.7,top_p=0.8,top_k=20,repetition_penalty=1, max_tokens=ctx_len)
+        sampler = SamplingParams(temperature=0.0, max_tokens=ctx_len)
         
         if lora:
             alt_lora = True
@@ -162,10 +161,10 @@ def do_train(model_source = "Qwen/Qwen3-8B-Base",
 
 if __name__ == "__main__":
     do_train(model_source="Qwen/Qwen2.5-3B-Instruct", 
-             gpu_fraction=0.6,
+             gpu_fraction=0.8,
              lora_rank=8,
              ctx_len=4096,
-             batch_size=25,
+             batch_size=50,
              population_size=28,
              total_steps=250,
              learning_rate=3,

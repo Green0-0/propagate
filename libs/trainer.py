@@ -73,7 +73,6 @@ class SimpleTrainer:
                     "pass@k_minimum": dataset.passk_minimum,
                     "force_reuse_batches": dataset.force_reuse_batches,
                     "reward_func_ratio": dataset.reward_func_ratio,
-                    "suffix": dataset.suffix,
                     "backend": backend.backend_name,
                     "num_gpus": backend.NUM_GPUS,
                     "cpus_per_gpu": backend.CPUS_PER_GPU,

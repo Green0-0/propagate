@@ -188,11 +188,8 @@ class MathVerifyRewardGenerator(RewardGenerator):
                         text_to_parse = last_match
                 except re.error:
                     return 0.0
-            print("Parsing: ", text_to_parse)
             try:
                 pred_parsed = parse(text_to_parse, extraction_config=self.extraction_config)
-                print("Parsed Prediction: ", pred_parsed)
-                print("Parsed Answer: ", gold_parsed)
             except Exception:
                 return 0.0
             try:
