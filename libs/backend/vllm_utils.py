@@ -33,7 +33,7 @@ class WorkerExtension:
     @torch.inference_mode()
     def perturb_self_weights(self, genome: Genome):
         """Perturb the model's weights using the provided genome."""
-        for seed, weight in zip(genome.seeds, genome.seed_weights):
+        for seed, weight in zip(genome.seeds, genome.perturb_scales):
             rand_counter = 0
             for _, p in self.model_runner.model.named_parameters():
                 gen = torch.Generator(device=p.device)
@@ -50,7 +50,7 @@ class WorkerExtension:
     @torch.inference_mode()
     def restore_self_weights(self, genome: Genome):
         """Restore the model's weights by removing the perturbations introduced by the genome."""
-        for seed, weight in zip(genome.seeds, genome.seed_weights):
+        for seed, weight in zip(genome.seeds, genome.perturb_scales):
             rand_counter = 0
             for _, p in self.model_runner.model.named_parameters():
                 gen = torch.Generator(device=p.device)

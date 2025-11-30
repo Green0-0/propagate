@@ -10,11 +10,11 @@ from libs.genome import Genome
 import math
 
 class Optimizer(ABC):
-    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
+    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
         self.optimizer_name = optimizer_name
         self.total_steps = total_steps
         self.learning_rate = learning_rate
-        self.seed_weight = seed_weight
+        self.perturb_scale = perturb_scale
         self.warmup_steps = warmup_steps
         self.scheduler = scheduler
         self.norm_by_mean = norm_by_mean
@@ -67,8 +67,8 @@ class Optimizer(ABC):
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
     
 class SimpleOpt(Optimizer):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "SimpleOptimizer", force_lora_alternating: bool = False):
-        super().__init__(optimizer_name, total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
+    def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
+        super().__init__("SimpleOptimizer", total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
 
     def update_self(self, genomes: List[Genome], current_step: int):
         self.rep_genome = Genome()
@@ -81,7 +81,7 @@ class SimpleOpt(Optimizer):
             added_old_seed = False
             for i in range(len(g.seeds)):
                 seed = g.seeds[i]
-                weight = g.seed_weights[i]
+                weight = g.perturb_scales[i]
                 if seed not in new_seeds:
                     if i < g.starting_index:
                         added_old_seed = True
@@ -116,7 +116,7 @@ class SimpleOpt(Optimizer):
 
         for seed, weight in new_seeds.items():
             self.rep_genome.seeds.append(seed)
-            self.rep_genome.seed_weights.append(weight)
+            self.rep_genome.perturb_scales.append(weight)
             self.rep_genome.historical_rewards.append(float('-inf'))
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
@@ -125,7 +125,7 @@ class SimpleOpt(Optimizer):
         """Apply a single optimization step to the given tensor."""
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             tensor.add_(noise, alpha=float(weight * lr_scalar))
@@ -147,8 +147,8 @@ class MomentumOpt(Optimizer):
     velocity_seeds_steps: List[List[Tuple[int, float]]]
     cutoff_steps: int
 
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "MomentumOptimizer", force_lora_alternating: bool = False):
-        super().__init__(optimizer_name, total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
+    def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False, optimizer_name: str = "MomentumOptimizer"):
+        super().__init__(f"{optimizer_name} (momentum={momentum})", total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
         self.momentum = momentum
         self.velocity_seeds_steps = []
         self.cutoff_steps = cutoff_steps
@@ -173,7 +173,7 @@ class MomentumOpt(Optimizer):
             for i in range(len(g.seeds)):
                 # If this is a new seed (it's unlikely we have seen it before so we do not optimize for duplicates), add it to the velocity. If this is an old seed (generated by a gradient step), ignore it because we keep a running history of all old seeds.
                 seed = g.seeds[i]
-                weight = g.seed_weights[i]
+                weight = g.perturb_scales[i]
                 if i < g.starting_index:
                     if seed not in old_seeds:
                         added_old_seed = True
@@ -205,7 +205,7 @@ class MomentumOpt(Optimizer):
             self.velocity_seeds_steps.pop(0)
         for seed, weight in old_seeds.items():
             self.rep_genome.seeds.append(seed)
-            self.rep_genome.seed_weights.append(weight)
+            self.rep_genome.perturb_scales.append(weight)
             self.rep_genome.historical_rewards.append(float('-inf'))
 
         # Traverse velocity seeds in reverse
@@ -217,7 +217,7 @@ class MomentumOpt(Optimizer):
             for idx in range(len(self.velocity_seeds_steps[step_idx])):
                 seed, weight = self.velocity_seeds_steps[step_idx][idx]
                 self.rep_genome.seeds.append(seed)
-                self.rep_genome.seed_weights.append(weight * accumulated_coefficient * lr_used)
+                self.rep_genome.perturb_scales.append(weight * accumulated_coefficient * lr_used)
                 self.rep_genome.historical_rewards.append(float('-inf'))
             accumulated_coefficient *= self.momentum
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
@@ -226,7 +226,7 @@ class MomentumOpt(Optimizer):
     def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             tensor.add_(noise, alpha=float(weight * lr_scalar))
@@ -245,15 +245,15 @@ class MomentumOpt(Optimizer):
         self.rep_genome = Genome()
 
 class MuonOpt(MomentumOpt):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "MuonOptimizer", force_lora_alternating: bool = False):
-        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, optimizer_name=optimizer_name, force_lora_alternating=force_lora_alternating)
+    def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
+        super().__init__(total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating, optimizer_name="MuonOptimizer")
         self.force_disable_lr = True
 
     def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1):
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
         total_noise = torch.zeros_like(tensor)
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             total_noise.add_(noise, alpha=weight)
@@ -283,8 +283,8 @@ class MuonOpt(MomentumOpt):
         raise NotImplementedError("MuonOpt does not support getting a representative genome.")
     
 class AdamOpt(MomentumOpt):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, beta2: float = 0.85, epsilon: float = 1e-5, accumulate_fp32=True, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "AdamOptimizer", force_lora_alternating: bool = False):
-        super().__init__(total_steps, learning_rate, seed_weight, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, optimizer_name=optimizer_name, force_lora_alternating=force_lora_alternating)
+    def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, beta2: float = 0.85, epsilon: float = 1e-5, accumulate_fp32=True, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
+        super().__init__(total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating, optimizer_name=f"AdamOptimizer (beta2={beta2}, epsilon={epsilon}, accumulate_fp32={accumulate_fp32})")
         self.beta2 = beta2
         self.epsilon = epsilon
         self.force_disable_lr = True
@@ -315,7 +315,7 @@ class AdamOpt(MomentumOpt):
             effective_beta2 *= self.beta2
         second_moment.sqrt_().add_(self.epsilon)
         second_moment.reciprocal_()
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             update_step = noise.to(torch.float32 if self.accumulate_fp32 else tensor.dtype)

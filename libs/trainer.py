@@ -23,7 +23,7 @@ class SimpleTrainer:
 
     def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
-        print(f"#-- Population Size: {population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.seed_weight} --#")
+        print(f"#-- Population Size: {population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.perturb_scale} --#")
         self.optimizer = optimizer
         self.backend = backend
         self.dataset = dataset
@@ -36,7 +36,7 @@ class SimpleTrainer:
         
         self.genomes = [Genome() for _ in range(population_size)]
         for genome in self.genomes:
-            genome.mutate_seed(optimizer.seed_weight)
+            genome.mutate_seed(optimizer.perturb_scale)
         if mirror:
             mirrored_genomes = []
             for genome in self.genomes:
@@ -54,18 +54,31 @@ class SimpleTrainer:
                 wandb.login()
                 config = {
                     "population_size": population_size,
+                    "mirror": mirror,
+                    "total_steps": optimizer.total_steps,
                     "learning_rate": optimizer.learning_rate,
-                    "seed_weight": optimizer.seed_weight,
+                    "perturb_scale": optimizer.perturb_scale,
+                    "optimizer": optimizer.optimizer_name,
+                    "optimizer_mean_norm": optimizer.norm_by_mean,
+                    "optimizer_stddev_norm": optimizer.norm_by_stddev,
+                    "optimizer_force_lora_alternating": optimizer.force_lora_alternating,
                     "warmup_steps": optimizer.warmup_steps,
                     "scheduler": optimizer.scheduler,
-                    "total_steps": optimizer.total_steps,
                     "batch_size": dataset.batch_size,
-                    "mirror": mirror,
-                    "optimizer": optimizer.optimizer_name,
+                    "dataset_train_len": len(dataset.pairs_train),
+                    "dataset_val_len": len(dataset.pairs_test),
+                    "dataset_suffix": dataset.suffix,
+                    "pass@k": dataset.passk,
+                    "pass@k_proportion": dataset.passk_proportion,
+                    "pass@k_minimum": dataset.passk_minimum,
+                    "force_reuse_batches": dataset.force_reuse_batches,
+                    "reward_func_ratio": dataset.reward_func_ratio,
+                    "suffix": dataset.suffix,
                     "backend": backend.backend_name,
                     "num_gpus": backend.NUM_GPUS,
                     "cpus_per_gpu": backend.CPUS_PER_GPU,
                     "gpu_fraction_worker": backend.GPU_FRACTION_VLLM_WORKER,
+                    "max_ctx_len": backend.max_model_len,
                 }
                 wandb.init(project=self.wandb_project, config=config)
                 wandb.define_metric("iteration_count")
@@ -169,7 +182,7 @@ class SimpleTrainer:
             
             self.genomes = [Genome() for _ in range(self.population_size)]
             for genome in self.genomes:
-                genome.mutate_seed(self.optimizer.seed_weight)
+                genome.mutate_seed(self.optimizer.perturb_scale)
             if self.mirror:
                 mirrored_genomes = []
                 for genome in self.genomes:
@@ -183,7 +196,7 @@ class SimpleTrainer:
             if isinstance(obj, Genome):
                 return {
                     "seeds": obj.seeds,
-                    "seed_weights": obj.seed_weights,
+                    "perturb_scales": obj.perturb_scales,
                     "historical_rewards": obj.historical_rewards,
                     "starting_index": obj.starting_index,
                     "__is_genome__": True
@@ -232,10 +245,10 @@ class SimpleTrainer:
 
         def reconstruct_structure(obj):
             if isinstance(obj, dict):
-                if obj.get("__is_genome__") is True or ("seeds" in obj and "seed_weights" in obj):
+                if obj.get("__is_genome__") is True or ("seeds" in obj and "perturb_scales" in obj):
                     genome = Genome()
                     genome.seeds = obj.get("seeds", [])
-                    genome.seed_weights = obj.get("seed_weights", [])
+                    genome.perturb_scales = obj.get("perturb_scales", [])
                     genome.historical_rewards = obj.get("historical_rewards", [float('-inf')] * len(genome.seeds))
                     genome.starting_index = obj.get("starting_index", 0)
                     return genome

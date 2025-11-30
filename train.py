@@ -1,4 +1,7 @@
 
+from libs.backend.vllm_backend import VLLMBackend
+
+
 def load_datasets(batch_size: int = 50):
     from datasets import load_dataset, Dataset
     from libs.datasets.hf_dataset_loader import load_hf_dataset
@@ -28,24 +31,30 @@ def load_datasets(batch_size: int = 50):
         }
     
     datasets = {}
-    oreal_hf = load_dataset("internlm/OREAL-RL-Prompts", split="train")
-    oreal_hf = oreal_hf.select(range(4000))
-    oreal_dataset = load_hf_dataset(
+    ace_hf = load_dataset("nvidia/AceReason-Math", split="train")
+    ace_hf = ace_hf.shuffle(seed=42)
+    print(len(ace_hf))
+    ace_hf = ace_hf.select(range(49000))
+    
+    datasets["acereason"] = load_hf_dataset(
         batch_size=batch_size,
-        hf_data=oreal_hf,
-        answer_reward=MathVerifyRewardGenerator(target_answer_key="gold_answer"),
-        input_column="question",
-        target_column="gold_answer"
+        hf_data=ace_hf,
+        answer_reward=MathVerifyRewardGenerator(target_answer_key="answer"),
+        input_column="problem",
+        target_column="answer",
+        force_reuse_batches=False,
+        passk=4
     )
-    datasets["oreal"] = oreal_dataset
-
+    
     mmlu_hf = load_dataset("cais/mmlu", "auxiliary_train", split="train")
+    print(len(mmlu_hf))
     mmlu_hf = Dataset.from_list(mmlu_hf['train'])
-    mmlu_hf = mmlu_hf.select(range(4000))
+    mmlu_hf = mmlu_hf.shuffle(seed=42)
+    mmlu_hf = mmlu_hf.select(range(49000))
     mmlu_hf = mmlu_hf.map(format_mmlu_row)
     mmlu_hf = mmlu_hf.filter(lambda x: x["formatted_question"] is not None and x["letter_answer"] != "")
 
-    mmlu_dataset = load_hf_dataset(
+    datasets["mmlu"] = load_hf_dataset(
         batch_size=batch_size,
         hf_data=mmlu_hf,
         answer_reward=LastChoiceRewardGenerator(
@@ -56,29 +65,29 @@ def load_datasets(batch_size: int = 50):
         input_column="formatted_question",
         target_column="letter_answer"
     )
-    datasets["mmlu"] = mmlu_dataset
 
     mega_hf = load_dataset("MegaScience/MegaScience", split="train")
     mega_hf = mega_hf.filter(lambda x: is_float(x.get("reference_answer", "")))
-    mega_hf = mega_hf.select(range(4000))
-    mega_dataset = load_hf_dataset(
+    mega_hf = mega_hf.shuffle(seed=42)
+    print(len(mega_hf))
+    mega_hf = mega_hf.select(range(49000))
+    datasets["megascience"] = load_hf_dataset(
         batch_size=batch_size,
         hf_data=mega_hf,
         answer_reward=MathVerifyRewardGenerator(target_answer_key="reference_answer"),
         input_column="question",
         target_column="reference_answer"
     )
-    datasets["megascience"] = mega_dataset
-    
-    merged_datasets = balanced_merge([datasets["oreal"], datasets["mmlu"], datasets["megascience"]])
+
+    merged_datasets = balanced_merge([datasets["acereason"], datasets["mmlu"], datasets["megascience"]])
     datasets["merged"] = merged_datasets
     return datasets
 
 def do_train(model_source = "Qwen/Qwen3-8B-Base", 
-             lora_model_source = "Qwen/Qwen3-8B-Base",
+             lora_model_source = None,
              gpu_fraction = 0.5,
              lora_rank = 8,
-             ctx_len = 4096,
+             ctx_len = 1024,
              batch_size = 50,
              population_size = 30,
              total_steps = 500,
@@ -88,7 +97,8 @@ def do_train(model_source = "Qwen/Qwen3-8B-Base",
              beta2 = 0.95,
              optimizer_name = "none",
              wandb_project = "propagate_optimizers",
-             target_dataset = "merged"):
+             target_dataset = "merged",
+             lora = False):
     from libs.backend.vllm_lorabackend import VLLMBackendLoRA
     from libs.trainer import SimpleTrainer
     from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
@@ -105,24 +115,30 @@ def do_train(model_source = "Qwen/Qwen3-8B-Base",
 
     try:
         dataset = load_datasets(batch_size=batch_size)[target_dataset]
-        dataset.generate_test_split(test_fraction=0.05, fold_index=1)
-
-        sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=4096)
-
-        backend = VLLMBackendLoRA(model_name=model_source, lora_model_source=lora_model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, Sampler=sampler, lora_rank=lora_rank, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True)
+        dataset.generate_test_split(test_fraction=0.005, fold_index=1)
+        if lora_model_source is None or lora_model_source == "":
+            lora_model_source = model_source
+        sampler = SamplingParams(temperature=0.7,top_p=0.8,top_k=20,repetition_penalty=1, max_tokens=ctx_len)
+        
+        if lora:
+            alt_lora = True
+            backend = VLLMBackendLoRA(model_name=model_source, lora_model_source=lora_model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, Sampler=sampler, lora_rank=lora_rank, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True)
+        else:
+            alt_lora = False
+            backend = VLLMBackend(model_name=model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, sampler=sampler, use_tqdm=False, time_self=True)
 
         if optimizer_name == "none":
-            optimizer = SimpleOpt(total_steps=total_steps, learning_rate=learning_rate, seed_weight=sigma, norm_by_mean=False, norm_by_stddev=False)
+            optimizer = SimpleOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False)
         elif optimizer_name == "momentum":
-            optimizer = MomentumOpt(total_steps=total_steps, learning_rate=learning_rate, seed_weight=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True, momentum=momentum)
+            optimizer = MomentumOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum)
         elif optimizer_name == "muon":
-            optimizer = MuonOpt(total_steps=total_steps, learning_rate=learning_rate, seed_weight=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True, momentum=momentum)
+            optimizer = MuonOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum)
         elif optimizer_name == "adam":
-            optimizer = AdamOpt(total_steps=total_steps, learning_rate=learning_rate, seed_weight=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True, momentum=momentum, beta2=beta2)
+            optimizer = AdamOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum, beta2=beta2)
         elif optimizer_name == "two_halves":
-            optimizer = TwoHalvesEstimatorOpt(total_steps=total_steps, learning_rate=learning_rate, seed_weight=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True, momentum=momentum, ema_decay=beta2)
+            optimizer = TwoHalvesEstimatorOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum, gamma=0.25, ema_decay=beta2)
         elif optimizer_name == "stein":
-            optimizer = SteinOpt(total_steps=total_steps, learning_rate=learning_rate, seed_weight=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
+            optimizer = SteinOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora)
 
         trainer = SimpleTrainer(population_size=population_size,
                                 mirror=True,
@@ -145,17 +161,18 @@ def do_train(model_source = "Qwen/Qwen3-8B-Base",
     pass
 
 if __name__ == "__main__":
-    do_train(model_source="Qwen/Qwen3-8B-Base", 
-             lora_model_source="Qwen/Qwen3-8B-Base",
-             gpu_fraction=0.5,
+    do_train(model_source="Qwen/Qwen2.5-3B-Instruct", 
+             gpu_fraction=0.6,
              lora_rank=8,
              ctx_len=4096,
-             batch_size=50,
-             population_size=30,
-             total_steps=500,
+             batch_size=25,
+             population_size=28,
+             total_steps=250,
              learning_rate=3,
              sigma=0.06,
              momentum=0.6,
              beta2=0.95,
              optimizer_name="none",
-             wandb_project="propagate_optimizers",)
+             wandb_project="propagate_optimizers",
+             target_dataset = "acereason",
+             lora = True)

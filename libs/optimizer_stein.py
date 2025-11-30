@@ -11,8 +11,8 @@ from libs.optimizers import Optimizer
 import math
 
 class SteinOpt(Optimizer):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, optimizer_name: str = "SimpleOptimizer", force_lora_alternating: bool = False):
-        super().__init__(optimizer_name, total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
+    def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
+        super().__init__(f"SteinOpt", total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
 
     def update_self(self, genomes: List[Genome], current_step: int):
         self.rep_genome = Genome()
@@ -25,7 +25,7 @@ class SteinOpt(Optimizer):
             added_old_seed = False
             for i in range(len(g.seeds)):
                 seed = g.seeds[i]
-                weight = g.seed_weights[i]
+                weight = g.perturb_scales[i]
                 if seed not in new_seeds:
                     if i < g.starting_index:
                         added_old_seed = True
@@ -60,7 +60,7 @@ class SteinOpt(Optimizer):
 
         for seed, weight in new_seeds.items():
             self.rep_genome.seeds.append(seed)
-            self.rep_genome.seed_weights.append(weight)
+            self.rep_genome.perturb_scales.append(weight)
             self.rep_genome.historical_rewards.append(float('-inf'))
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
@@ -70,7 +70,7 @@ class SteinOpt(Optimizer):
         gen = torch.Generator(device=tensor.device)
         ghat = torch.zeros_like(tensor)
         noise = torch.empty_like(tensor)
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             ghat.add_(noise, alpha=float(weight))
@@ -79,7 +79,7 @@ class SteinOpt(Optimizer):
         uhat = ghat / (norm + 1e-8)
         s1 = 0
         s2 = 0
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             t = torch.dot(uhat.view(-1), noise.view(-1))
@@ -89,7 +89,7 @@ class SteinOpt(Optimizer):
         s2 /= len(self.rep_genome.seeds)
         k = max(s2, 1e-6)
         n = s1/(k*norm)
-        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.seed_weights):
+        for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise)
             tensor.data.add_(noise, alpha=n * lr_scalar * float(weight) * self.last_lr)

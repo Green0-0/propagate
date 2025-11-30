@@ -11,8 +11,8 @@ from libs.optimizers import Optimizer
 import math
 
 class TwoHalvesEstimatorOpt(Optimizer):
-    def __init__(self, total_steps: int, learning_rate: float, seed_weight: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, norm_by_stddev: bool = True, optimizer_name: str = "TwoHalvesEstimator", force_lora_alternating: bool = False, ema_decay: float = 0.9, tau: float = 1.0, epsilon: float = 1e-8, momentum: float = 0.9, gamma: float = 1, cutoff_steps: int = 20):
-        super().__init__(optimizer_name, total_steps, learning_rate, seed_weight, warmup_steps, scheduler, norm_by_mean, norm_by_stddev, force_lora_alternating)
+    def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, norm_by_stddev: bool = True, force_lora_alternating: bool = False, ema_decay: float = 0.9, tau: float = 1.0, epsilon: float = 1e-8, momentum: float = 0.9, gamma: float = 1, cutoff_steps: int = 20):
+        super().__init__(f"TwoHalvesEstimatorOpt (ema_decay={ema_decay}, tau={tau}, epsilon={epsilon}, momentum={momentum}, gamma={gamma}, cutoff_steps={cutoff_steps})", total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, norm_by_mean, norm_by_stddev, force_lora_alternating)
         self.rep_genome_A = None
         self.rep_genome_B = None
         self.current_step_lr = 0.0
@@ -56,7 +56,7 @@ class TwoHalvesEstimatorOpt(Optimizer):
             added_old_seed = False
             for i in range(len(g.seeds)):
                 seed = g.seeds[i]
-                weight = g.seed_weights[i]
+                weight = g.perturb_scales[i]
                 if seed not in new_seeds:
                     if i < g.starting_index:
                         added_old_seed = True
@@ -92,7 +92,7 @@ class TwoHalvesEstimatorOpt(Optimizer):
 
         for seed, weight in new_seeds.items():
             rep.seeds.append(seed)
-            rep.seed_weights.append(weight)
+            rep.perturb_scales.append(weight)
             rep.historical_rewards.append(float('-inf'))
         rep.starting_index = len(rep.seeds)
         return rep
@@ -128,11 +128,11 @@ class TwoHalvesEstimatorOpt(Optimizer):
         self.update_history.append((copy.deepcopy(self.rep_genome_A), copy.deepcopy(self.rep_genome_B)))
 
         current_step_seeds = {}
-        for seed, weight in zip(self.rep_genome_A.seeds, self.rep_genome_A.seed_weights):
+        for seed, weight in zip(self.rep_genome_A.seeds, self.rep_genome_A.perturb_scales):
             if seed not in current_step_seeds: current_step_seeds[seed] = 0.0
             current_step_seeds[seed] += (weight * 0.5)
             
-        for seed, weight in zip(self.rep_genome_B.seeds, self.rep_genome_B.seed_weights):
+        for seed, weight in zip(self.rep_genome_B.seeds, self.rep_genome_B.perturb_scales):
             if seed not in current_step_seeds: current_step_seeds[seed] = 0.0
             current_step_seeds[seed] += (weight * 0.5)
 
@@ -155,13 +155,13 @@ class TwoHalvesEstimatorOpt(Optimizer):
         noise_buffer = torch.empty_like(tensor)
 
         grad_a = torch.zeros_like(tensor)
-        for seed, weight in zip(self.rep_genome_A.seeds, self.rep_genome_A.seed_weights):
+        for seed, weight in zip(self.rep_genome_A.seeds, self.rep_genome_A.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise_buffer)
             grad_a.add_(noise_buffer, alpha=float(weight))
 
         grad_b = torch.zeros_like(tensor)
-        for seed, weight in zip(self.rep_genome_B.seeds, self.rep_genome_B.seed_weights):
+        for seed, weight in zip(self.rep_genome_B.seeds, self.rep_genome_B.perturb_scales):
             gen.manual_seed(int(seed) + random_offset)
             torch.randn(tensor.shape, generator=gen, device=tensor.device, dtype=tensor.dtype, out=noise_buffer)
             grad_b.add_(noise_buffer, alpha=float(weight))

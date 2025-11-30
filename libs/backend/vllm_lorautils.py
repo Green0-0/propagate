@@ -298,7 +298,7 @@ class WorkerExtension:
             aid, _ = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
 
-            for seed, weight in zip(genome.seeds, genome.seed_weights):
+            for seed, weight in zip(genome.seeds, genome.perturb_scales):
                 rand_counter = 0
                 
                 for layer_name, (lora_a, lora_b) in sorted(weights.items()):
@@ -354,7 +354,7 @@ class WorkerExtension:
             aid, _lora_model = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
 
-            for seed, weight in zip(genome.seeds, genome.seed_weights):
+            for seed, weight in zip(genome.seeds, genome.perturb_scales):
                 rand_counter = 0
 
                 for layer_name, (lora_a, lora_b) in sorted(weights.items()):
