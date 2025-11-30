@@ -38,8 +38,7 @@ def load_datasets(batch_size: int = 50):
         answer_reward=MathVerifyRewardGenerator(target_answer_key="answer"),
         input_column="problem",
         target_column="answer",
-        force_reuse_batches=False,
-        passk=4
+        force_reuse_batches=False
     )
     """
     mmlu_hf = load_dataset("cais/mmlu", "auxiliary_train", split="train")
@@ -82,6 +81,56 @@ def load_datasets(batch_size: int = 50):
 
 if __name__ == "__main__":
     datasets = load_datasets()
-    acereason = datasets["acereason"]
-    batch = acereason.get_test_set()
-    print(batch[0])
+    ds = datasets["acereason"]
+    ds.generate_test_split(test_fraction=0.01, fold_index=1)
+    batch = ds.get_test_set()
+    q = ds.last_batch[0][0][0]
+    a = ds.last_batch[0][1][0]
+    f = ds.last_batch[0][2][0]
+    print(q)
+    print(a)
+    print(f)
+    # [{'role': 'user', 'content': 'Find the largest positive number \\( x \\) such that\n\\[\n\\left(2 x^{3} - x^{2} - x + 1\\right)^{1 + \\frac{1}{2 x + 1}} = 1.\n\\]\nShow your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>'}]
+    sample_responses = [
+        "<think> hmmm?",
+        "<think> let me see... </think> <answer> 42 </answer>",
+        "<think> after some calculations, I found that the answer is... </think> <",
+        "<answer> 3.14 </answer>",
+        "<answer>",
+        "5, 6, 78, 12, 3",
+        "5, 6, <answer>78</answer>, 12, 3",
+        "$$3$$, 7, 12",
+        "$3$, 7, 12",
+        "\\boxed{12}",
+        "\\boxed{12} and 23 48 12",
+        "\\boxed{12} and <answer>23</answer> 48 12",
+        "\\[ x = 1 \\]",
+        "<answer>\\[ x = 1 \\] 59 12</answer>",
+        "7, $$3$$",
+        "<answer>7, $8/8$</answer>",
+        "nothing",
+        "\\[completely invalid latex\\]",
+        "<answer>\\[\\[1\\]\\]</answer>"
+    ]
+    for sample_response in sample_responses:
+        print(sample_response)
+        print("Answer score: ", a(sample_response))
+        print("Format score: ", f(sample_response))
+    i = 7
+    print(i)
+    q = ds.last_batch[0][0][i]
+    a = ds.last_batch[0][1][i]
+    f = ds.last_batch[0][2][i]
+    print(q)
+    print(a)
+    print(f)
+    sample_responses = [
+        "<answer> 1 </answer>",
+        "<answer> [-4, 2] </answer>",
+        "<answer> $[-4, 2]$ </answer>",
+        "<answer> \\[[-4, 2]\\] </answer>",
+    ]
+    for sample_response in sample_responses:
+        print(sample_response)
+        print("Answer score: ", a(sample_response))
+        print("Format score: ", f(sample_response))

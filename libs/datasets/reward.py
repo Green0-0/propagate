@@ -55,7 +55,7 @@ class RegexRewardGenerator(RewardGenerator):
     Basic equality reward function with regex.
     Checks if the response contains the target string within the last instance of the wrapper regex.
     """
-    def __init__(self, target_key: str, wrapper_regex: str, lowercase: bool = True):
+    def __init__(self, target_key: str, wrapper_regex: str = r"<answer>(.*?)<\/answer>", lowercase: bool = True):
         self.wrapper_regex = wrapper_regex
         self.lowercase = lowercase
         self.target_key = target_key
@@ -140,7 +140,7 @@ class MathVerifyRewardGenerator(RewardGenerator):
         self, 
         target_answer_key: str, 
         extraction_config: Optional[List[LatexExtractionConfig]] = None, 
-        wrapper_regex: Optional[str] = None
+        wrapper_regex: Optional[str] = r"<answer>(.*?)<\/answer>"
     ):
         self.target_key = target_answer_key
         self.wrapper_regex = wrapper_regex
@@ -165,8 +165,9 @@ class MathVerifyRewardGenerator(RewardGenerator):
 
     def build_reward_function(self, input: Dict) -> Callable[[str], float]:
         gold_raw = str(input.get(self.target_key, ""))
+        gold_raw = f"${gold_raw}$" if not (gold_raw.startswith("$") and gold_raw.endswith("$")) else gold_raw
         try:
-            gold_parsed = parse(gold_raw)
+            gold_parsed = parse(gold_raw, extraction_config=self.extraction_config)
         except Exception:
             print(f"Warning: Failed to parse gold answer: {gold_raw}. Assigning zero reward.")
             return lambda x: 0.0
@@ -187,8 +188,11 @@ class MathVerifyRewardGenerator(RewardGenerator):
                         text_to_parse = last_match
                 except re.error:
                     return 0.0
+            print("Parsing: ", text_to_parse)
             try:
                 pred_parsed = parse(text_to_parse, extraction_config=self.extraction_config)
+                print("Parsed Prediction: ", pred_parsed)
+                print("Parsed Answer: ", gold_parsed)
             except Exception:
                 return 0.0
             try:
@@ -205,7 +209,7 @@ class LastChoiceRewardGenerator(RewardGenerator):
         choices: Union[List[str], str], 
         target_answer_key: str, 
         lowercase: bool = True, 
-        wrapper_regex: Optional[str] = None
+        wrapper_regex: Optional[str] = r"<answer>(.*?)<\/answer>"
     ):
         self.choices = choices
         self.target_answer_key = target_answer_key
