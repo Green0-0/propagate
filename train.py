@@ -1,12 +1,11 @@
 
 from libs.backend.vllm_backend import VLLMBackend
 
-
 def load_datasets(batch_size: int = 50):
     from datasets import load_dataset, Dataset
     from libs.datasets.hf_dataset_loader import load_hf_dataset
     from libs.datasets.dataset import balanced_merge
-    from libs.datasets.reward import MathVerifyRewardGenerator, LastChoiceRewardGenerator
+    from libs.datasets.reward import MathVerifyRewardGenerator, LastChoiceRewardGenerator, LastMatchRewardGenerator
     import re
     
     def is_float(s: str) -> bool:
@@ -76,6 +75,35 @@ def load_datasets(batch_size: int = 50):
         answer_reward=MathVerifyRewardGenerator(target_answer_key="reference_answer"),
         input_column="question",
         target_column="reference_answer"
+    )
+
+    gsm8k_hf = load_dataset("openai/gsm8k", "main", split="train")
+    
+    def process_gsm8k(item):
+        try:
+            solution = item['answer']
+            if "####" in solution:
+                clean_ans = solution.split("####")[-1].strip().replace(",", "")
+                return {"clean_answer": int(float(clean_ans))}
+        except (ValueError, IndexError):
+            print(f"Could not parse GSM8K answer: {item['answer']}")
+            pass
+        return {"clean_answer": None}
+
+    gsm8k_hf = gsm8k_hf.map(process_gsm8k)
+    gsm8k_hf = gsm8k_hf.filter(lambda x: x["clean_answer"] is not None)
+    gsm8k_hf = gsm8k_hf.shuffle(seed=42)
+    print(f"GSM8K size: {len(gsm8k_hf)}")
+
+    datasets["gsm8k"] = load_hf_dataset(
+        batch_size=batch_size,
+        hf_data=gsm8k_hf,
+        answer_reward=LastMatchRewardGenerator(
+            target_key="clean_answer", 
+            target_type=int
+        ),
+        input_column="question",
+        target_column="clean_answer"
     )
 
     merged_datasets = balanced_merge([datasets["acereason"], datasets["mmlu"], datasets["megascience"]])
