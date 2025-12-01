@@ -5,6 +5,7 @@ def load_datasets(batch_size: int = 50):
     from datasets import load_dataset, Dataset
     from libs.datasets.hf_dataset_loader import load_hf_dataset
     from libs.datasets.dataset import balanced_merge
+    from libs.datasets.countdown_dataset import AnswerRewardGenerator
     from libs.datasets.reward import MathVerifyRewardGenerator, LastChoiceRewardGenerator, LastMatchRewardGenerator
     import re
     
@@ -106,18 +107,50 @@ def load_datasets(batch_size: int = 50):
         target_column="clean_answer"
     )
 
+    countdown_hf = load_dataset("Jiayi-Pan/Countdown-Tasks-3to4", split="train")
+
+    def format_countdown_row(item):
+        nums = item['nums']
+        target = item['target']
+        
+        nums_str = "[" + " ".join(map(str, nums)) + "]"
+        
+        prompt = (
+            "You are a helpful assistant. You first think about the reasoning process in your mind "
+            "and then provide the user with the answer. "
+            f"Using the numbers {nums_str}, create an equation that equals {target}. "
+            "You can use basic arithmetic operations (+, -, *, /) and each number can only be used once."
+        )
+        
+        return {
+            "prompt": prompt,
+            "nums": nums,
+            "target": target
+        }
+
+    countdown_hf = countdown_hf.map(format_countdown_row)
+    countdown_hf = countdown_hf.shuffle(seed=42)
+
+    datasets["countdown"] = load_hf_dataset(
+        batch_size=batch_size,
+        hf_data=countdown_hf,
+        answer_reward=AnswerRewardGenerator(numbers_key="nums", target_key="target"),
+        input_column="prompt",
+        target_column="target"
+    )
+
     merged_datasets = balanced_merge([datasets["acereason"], datasets["mmlu"], datasets["megascience"]])
     datasets["merged"] = merged_datasets
     return datasets
 
-def do_train(model_source = "Qwen/Qwen3-8B-Base", 
+def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct", 
              lora_model_source = None,
-             gpu_fraction = 0.5,
+             gpu_fraction = 0.8,
              lora_rank = 8,
              ctx_len = 1024,
              batch_size = 50,
              population_size = 30,
-             total_steps = 500,
+             total_steps = 250,
              learning_rate = 3,
              sigma = 0.06,
              momentum = 0.6,
