@@ -48,11 +48,9 @@ def load_hf_dataset(
             }
         ]
         
-        pair = {
-            "input": sharegpt_format
-        }
-        if target_column in item:
-            pair[target_column] = item[target_column]
+        pair = dict(item) 
+        
+        pair["input"] = sharegpt_format
             
         pairs.append(pair)
 
