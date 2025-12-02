@@ -27,7 +27,7 @@ import gc
 from libs.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 10, rep_check_every: int = 50):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 15, rep_check_every: int = 100, repeat_tokens_begin_scan_count: int = 500, repeat_tokens_lookback_length: int = 500):
         super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         self.lora_rank = lora_rank
         self.lora_perturb_target: str = lora_perturb_target
@@ -40,6 +40,8 @@ class VLLMBackendLoRA(Backend):
         self.repeat_tokens_buffer_count = repeat_tokens_buffer_count
         self.repeat_times_kill = repeat_times_kill
         self.rep_check_every = rep_check_every
+        self.repeat_tokens_begin_scan_count = repeat_tokens_begin_scan_count
+        self.repeat_tokens_lookback_length = repeat_tokens_lookback_length
 
     def startup(self, trainer: SimpleTrainer):
         """Initializes the vLLM backend with Ray actors and placement groups."""
@@ -127,13 +129,16 @@ class VLLMBackendLoRA(Backend):
                             curr_tokens = out.token_ids
                             curr_len = len(curr_tokens)
                             
-                            if curr_len >= self.repeat_tokens_buffer_count:
+                            if curr_len >= self.repeat_tokens_begin_scan_count and curr_len >= self.repeat_tokens_buffer_count:
+                                
                                 tail = curr_tokens[-self.repeat_tokens_buffer_count:]
                                 seq_len = self.repeat_tokens_buffer_count
                                 count = 0
                                 limit_threshold = self.repeat_times_kill + 1
+
+                                scan_end_limit = max(-1, curr_len - self.repeat_tokens_lookback_length - 1)
                                 
-                                for i in range(curr_len - seq_len, -1, -1):
+                                for i in range(curr_len - seq_len, scan_end_limit, -1):
                                     if curr_tokens[i : i + seq_len] == tail:
                                         count += 1
                                         if count > limit_threshold:
@@ -204,6 +209,8 @@ class VLLMBackendLoRA(Backend):
                 repeat_tokens_buffer_count=self.repeat_tokens_buffer_count,
                 repeat_times_kill=self.repeat_times_kill,
                 rep_check_every=self.rep_check_every,
+                repeat_tokens_begin_scan_count=self.repeat_tokens_begin_scan_count,
+                repeat_tokens_lookback_length=self.repeat_tokens_lookback_length,
                 model=self.model_name,
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
