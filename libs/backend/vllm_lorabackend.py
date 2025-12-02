@@ -27,7 +27,7 @@ import gc
 from libs.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 10):
         super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         self.lora_rank = lora_rank
         self.lora_perturb_target: str = lora_perturb_target
@@ -37,6 +37,9 @@ class VLLMBackendLoRA(Backend):
         if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
             raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
         
+        self.repeat_tokens_buffer_count = repeat_tokens_buffer_count
+        self.repeat_times_kill = repeat_times_kill
+
     def startup(self, trainer: SimpleTrainer):
         """Initializes the vLLM backend with Ray actors and placement groups."""
         os.environ.pop("RAY_ADDRESS", None)
@@ -47,7 +50,10 @@ class VLLMBackendLoRA(Backend):
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
         class MyLLM(LLM):
-            def __init__(self, *args, **kwargs):
+            def __init__(self, repeat_tokens_buffer_count, repeat_times_kill, *args, **kwargs):
+                self.repeat_tokens_buffer_count = repeat_tokens_buffer_count
+                self.repeat_times_kill = repeat_times_kill
+
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
                 os.environ["VLLM_RAY_PER_WORKER_GPUS"] = pass_gpu_fraction
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
@@ -106,14 +112,37 @@ class VLLMBackendLoRA(Backend):
                     for ro in request_outputs:
                         # Accumulate generated tokens incrementally for throughput stats
                         out = ro.outputs[0] if (hasattr(ro, "outputs") and ro.outputs) else None
+
+                        loop_detected = False
                         if out is not None and hasattr(out, "token_ids"):
-                            curr = len(out.token_ids)  # generated tokens so far for this request
+                            curr_tokens = out.token_ids
+                            curr_len = len(curr_tokens)
+                            
+                            if curr_len >= self.repeat_tokens_buffer_count:
+                                tail = curr_tokens[-self.repeat_tokens_buffer_count:]
+
+                                count = 0
+                                limit_threshold = self.repeat_times_kill + 1
+                                seq_len = self.repeat_tokens_buffer_count
+                                
+                                for i in range(curr_len - seq_len + 1):
+                                    if curr_tokens[i : i + seq_len] == tail:
+                                        count += 1
+                                        if count > limit_threshold:
+                                            loop_detected = True
+                                            break
+
+                        if out is not None and hasattr(out, "token_ids"):
+                            curr = len(out.token_ids)
                             prev = prev_gen_tokens.get(ro.request_id, 0)
                             if curr > prev:
                                 step_new_tokens += (curr - prev)
                                 prev_gen_tokens[ro.request_id] = curr
 
-                        if getattr(ro, "finished", False):
+                        if loop_detected or getattr(ro, "finished", False):
+                            if loop_detected:
+                                engine.abort_request(ro.request_id)
+                            
                             g_idx, p_idx = req_to_idx[ro.request_id]
                             text = out.text if (out is not None and hasattr(out, "text")) else ""
                             results[g_idx][p_idx] = text

@@ -175,7 +175,12 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
 
     try:
         dataset = load_datasets(batch_size=batch_size)[target_dataset]
-        dataset.generate_test_split(test_fraction=0.01, fold_index=1)
+        test_fraction = 0.01
+        if target_dataset == "countdown":
+            test_fraction = 0.001
+        elif target_dataset == "gsm8k":
+            test_fraction = 0.05
+        dataset.generate_test_split(test_fraction=test_fraction, fold_index=1)
         if lora_model_source is None or lora_model_source == "":
             lora_model_source = model_source
         sampler = SamplingParams(temperature=0.0, max_tokens=ctx_len)
@@ -234,5 +239,5 @@ if __name__ == "__main__":
              beta2=0.95,
              optimizer_name="none",
              wandb_project="propagate_optimizers",
-             target_dataset = "acereason",
+             target_dataset = "countdown",
              lora = True)
