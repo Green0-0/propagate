@@ -193,6 +193,8 @@ class VLLMBackendLoRA(Backend):
                 num_gpus=0,
                 scheduling_strategy=strategy,
             )(MyLLM).remote(
+                repeat_tokens_buffer_count=self.repeat_tokens_buffer_count,
+                repeat_times_kill=self.repeat_times_kill,
                 model=self.model_name,
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
