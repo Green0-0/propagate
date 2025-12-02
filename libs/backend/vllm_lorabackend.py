@@ -111,6 +111,9 @@ class VLLMBackendLoRA(Backend):
 
                     for ro in request_outputs:
                         # Accumulate generated tokens incrementally for throughput stats
+                        if ro.request_id not in req_to_idx:
+                            continue
+
                         out = ro.outputs[0] if (hasattr(ro, "outputs") and ro.outputs) else None
 
                         loop_detected = False
@@ -143,7 +146,7 @@ class VLLMBackendLoRA(Backend):
                             if loop_detected:
                                 engine.abort_request(ro.request_id)
                             
-                            g_idx, p_idx = req_to_idx[ro.request_id]
+                            g_idx, p_idx = req_to_idx.pop(ro.request_id)
                             text = out.text if (out is not None and hasattr(out, "text")) else ""
                             results[g_idx][p_idx] = text
 
