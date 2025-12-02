@@ -27,7 +27,7 @@ import gc
 from libs.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 10):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 10, rep_check_every: int = 50):
         super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         self.lora_rank = lora_rank
         self.lora_perturb_target: str = lora_perturb_target
@@ -39,6 +39,7 @@ class VLLMBackendLoRA(Backend):
         
         self.repeat_tokens_buffer_count = repeat_tokens_buffer_count
         self.repeat_times_kill = repeat_times_kill
+        self.rep_check_every = rep_check_every
 
     def startup(self, trainer: SimpleTrainer):
         """Initializes the vLLM backend with Ray actors and placement groups."""
@@ -50,9 +51,10 @@ class VLLMBackendLoRA(Backend):
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
         class MyLLM(LLM):
-            def __init__(self, repeat_tokens_buffer_count, repeat_times_kill, *args, **kwargs):
+            def __init__(self, repeat_tokens_buffer_count, repeat_times_kill, rep_check_every, *args, **kwargs):
                 self.repeat_tokens_buffer_count = repeat_tokens_buffer_count
                 self.repeat_times_kill = repeat_times_kill
+                self.rep_check_every = rep_check_every
 
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
                 os.environ["VLLM_RAY_PER_WORKER_GPUS"] = pass_gpu_fraction
@@ -104,10 +106,14 @@ class VLLMBackendLoRA(Backend):
                     pbar = _tqdm(total=remaining, desc="vLLM multi-LoRA", leave=True)
 
                 # Drive engine until all requests finish
+                global_step_counter = 0
                 while remaining > 0:
                     request_outputs = engine.step()
+                    global_step_counter += 1
 
                     step_new_tokens = 0
+
+                    should_check_loops = (global_step_counter % self.rep_check_every == 0)
 
                     for ro in request_outputs:
                         # Accumulate generated tokens incrementally for throughput stats
@@ -117,18 +123,17 @@ class VLLMBackendLoRA(Backend):
                         out = ro.outputs[0] if (hasattr(ro, "outputs") and ro.outputs) else None
 
                         loop_detected = False
-                        if out is not None and hasattr(out, "token_ids"):
+                        if should_check_loops and out is not None and hasattr(out, "token_ids"):
                             curr_tokens = out.token_ids
                             curr_len = len(curr_tokens)
                             
                             if curr_len >= self.repeat_tokens_buffer_count:
                                 tail = curr_tokens[-self.repeat_tokens_buffer_count:]
-
+                                seq_len = self.repeat_tokens_buffer_count
                                 count = 0
                                 limit_threshold = self.repeat_times_kill + 1
-                                seq_len = self.repeat_tokens_buffer_count
                                 
-                                for i in range(curr_len - seq_len + 1):
+                                for i in range(curr_len - seq_len, -1, -1):
                                     if curr_tokens[i : i + seq_len] == tail:
                                         count += 1
                                         if count > limit_threshold:
@@ -198,6 +203,7 @@ class VLLMBackendLoRA(Backend):
             )(MyLLM).remote(
                 repeat_tokens_buffer_count=self.repeat_tokens_buffer_count,
                 repeat_times_kill=self.repeat_times_kill,
+                rep_check_every=self.rep_check_every,
                 model=self.model_name,
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
