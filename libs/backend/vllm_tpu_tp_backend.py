@@ -14,7 +14,6 @@ from libs.backend.backend_abc import Backend
 from libs.genome import Genome
 from libs.optimizers import Optimizer, SimpleOpt
 
-os.environ["PYTHONHASHSEED"] = "42"
 logging.getLogger("vllm.tpu_inference").setLevel(logging.WARNING)
 
 class VllMTPUTPBackend(Backend):
@@ -47,12 +46,8 @@ class VllMTPUTPBackend(Backend):
 
     def _process_weights_chunked(self, genome: Genome = None, optimizer: Optimizer = None, mode: str = "perturb"):
         """
-        Handles weight perturbation, restoration, and updates in chunks to avoid OOM.
-        
-        Args:
-            genome: The genome containing seeds/scales (used for perturb/restore).
-            optimizer: The optimizer containing the representative genome (used for update).
-            mode: "perturb" (add), "restore" (sub), or "update" (permanent update).
+        Handles weight perturbation, restoration, and updates in chunks.
+        FIXED: Uses parameter index instead of hash(path) for stable RNG.
         """
         worker = self.model_worker
         
@@ -64,12 +59,13 @@ class VllMTPUTPBackend(Backend):
         chunk_size = 10 
 
         if mode == "update":
-            assert isinstance(optimizer, SimpleOpt), "Optimizer must be provided for update mode, and it must be of type SimpleOpt. While this optimizer technically works with momentum, it is untested and other optimizers have been found to be strictly worse than standard gradient descent anyways."
+            assert isinstance(optimizer, SimpleOpt)
             genome = optimizer.get_representative()
         
         for i in range(0, total_params, chunk_size):
             current_state = worker.model_runner.state
-            chunk_paths = [item[0] for item in flat_state[i : i + chunk_size]]
+            chunk_items = flat_state[i : i + chunk_size]
+            chunk_paths = [item[0] for item in chunk_items]
             
             chunk_update = {}
             chunk_mappings = {}
@@ -80,7 +76,9 @@ class VllMTPUTPBackend(Backend):
                     node = node[p]
                 return node
 
-            for path in chunk_paths:
+            for chunk_rel_idx, path in enumerate(chunk_paths):
+                global_param_index = i + chunk_rel_idx
+                
                 val = get_value_by_path(current_state, path)
                 
                 leaf = val
@@ -93,19 +91,21 @@ class VllMTPUTPBackend(Backend):
                     sharding = leaf.sharding
 
                 if isinstance(leaf, jax.Array) and jnp.issubdtype(leaf.dtype, jnp.floating):
-                    aggregate_delta = jnp.zeros_like(leaf)
+                    aggregate_delta = jnp.zeros(leaf.shape, dtype=jnp.float32)
 
                     for seed, weight in zip(genome.seeds, genome.perturb_scales):
                         key = jax.random.PRNGKey(int(seed))
-                        path_hash = hash(tuple(path)) & 0xFFFFFFFF
-                        key = jax.random.fold_in(key, path_hash)
                         
-                        noise = jax.random.normal(key, leaf.shape, dtype=leaf.dtype)
+                        key = jax.random.fold_in(key, global_param_index)
+                        
+                        noise = jax.random.normal(key, leaf.shape, dtype=jnp.float32)
 
                         if mode == "restore":
                             aggregate_delta = aggregate_delta - (noise * weight)
                         else:
                             aggregate_delta = aggregate_delta + (noise * weight)
+                    
+                    aggregate_delta = aggregate_delta.astype(leaf.dtype)
                     
                     if mode == "restore":
                         new_val = leaf - aggregate_delta
