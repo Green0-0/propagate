@@ -334,7 +334,6 @@ class WorkerExtension:
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
-
     @torch.inference_mode()
     def restore_self_weights_multi(self, genomes: List[Genome], target: str):
         lora_manager = self.model_runner.lora_manager

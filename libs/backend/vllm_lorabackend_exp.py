@@ -33,9 +33,9 @@ class VLLMBackendLoRA(Backend):
                  CPUS_PER_GPU: int, 
                  GPU_FRACTION_VLLM_WORKER: float, 
                  Sampler: SamplingParams, 
-                 max_loras_per_gpu: int,  # <--- NEW PARAMETER
                  use_tqdm: bool = False, 
                  time_self: bool = False, 
+                 max_loras_per_gpu: int = 7,
                  max_model_len: int = 4096, 
                  lora_rank: int = 16, 
                  lora_perturb_target: str = "b-", 

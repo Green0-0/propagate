@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 from ray.util.placement_group import placement_group, remove_placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from vllm import LLM, SamplingParams
-from vllm.utils import get_ip, get_open_port
+from vllm.utils.network_utils import get_ip, get_open_port
 
 from libs.genome import Genome
 from libs.optimizers import Optimizer
