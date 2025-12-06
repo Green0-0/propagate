@@ -96,6 +96,7 @@ class VllMTPUTPBackend(Backend):
 
                 if isinstance(leaf, jax.Array) and jnp.issubdtype(leaf.dtype, jnp.floating):
                     aggregate_delta = jnp.zeros(leaf.shape, dtype=jnp.float32)
+
                     for seed, weight in zip(genome.seeds, genome.perturb_scales):
                         key = jax.random.PRNGKey(int(seed))
                         key = jax.random.fold_in(key, global_param_index)
@@ -119,6 +120,8 @@ class VllMTPUTPBackend(Backend):
 
             chunk_state = nnx.State(chunk_update)
             worker.sync_weights(updated_weights=chunk_state, mappings=chunk_mappings, transpose_keys={}, reshard_fn=None)
+            arrays_to_sync = [p.value for p in chunk_update.values()]
+            jax.block_until_ready(arrays_to_sync)
 
             del chunk_update
             del chunk_mappings
