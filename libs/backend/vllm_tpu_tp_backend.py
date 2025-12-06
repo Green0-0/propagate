@@ -5,7 +5,6 @@ import gc
 from typing import List, Dict, Any
 import logging
 
-# JAX / Flax imports
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -15,6 +14,7 @@ from libs.backend.backend_abc import Backend
 from libs.genome import Genome
 from libs.optimizers import Optimizer, SimpleOpt
 
+os.environ["PYTHONHASHSEED"] = "42"
 logging.getLogger("vllm.tpu_inference").setLevel(logging.WARNING)
 
 class VllMTPUTPBackend(Backend):
@@ -97,7 +97,7 @@ class VllMTPUTPBackend(Backend):
 
                     for seed, weight in zip(genome.seeds, genome.perturb_scales):
                         key = jax.random.PRNGKey(int(seed))
-                        path_hash = hash(tuple(path))
+                        path_hash = hash(tuple(path)) & 0xFFFFFFFF
                         key = jax.random.fold_in(key, path_hash)
                         
                         noise = jax.random.normal(key, leaf.shape, dtype=leaf.dtype)
