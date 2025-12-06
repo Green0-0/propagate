@@ -1,15 +1,10 @@
 import os
 import sys
 
-# --- CRITICAL FIXES FOR 8x INDEPENDENT TPU MODELS ---
-
-# 1. Stop JAX from grabbing all memory on startup
+# --- CRITICAL MEMORY SETTINGS ---
+# Must be set before importing jax/vllm to prevent OOM
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-# 2. Force JAX to allocate memory on demand rather than in big slabs
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
-
-# 3. Disable V1 multiprocessing (as you did before)
 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
 os.environ.pop("TPU_MULTIHOST_BACKEND", None)
 
@@ -17,6 +12,7 @@ import time
 import gc
 import threading
 from concurrent.futures import ThreadPoolExecutor
+import queue
 from typing import List, Dict, Any
 import logging
 
@@ -29,12 +25,12 @@ from libs.backend.backend_abc import Backend
 from libs.genome import Genome
 from libs.optimizers import Optimizer, SimpleOpt
 
+# Suppress warnings
 logging.getLogger("vllm.tpu_inference").setLevel(logging.WARNING)
 
 class VllMTPUIndependentBackend(Backend):
     def __init__(self, model_name: str, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False, gpu_memory_utilization: float = 0.85):
-        # Increased gpu_memory_utilization default to 0.85. 
-        # Since we disabled preallocation, we can safely allow vLLM to use more of the actual chip.
+        # We pass TP=1 to the parent because conceptually we are running 1-device models, just 8 of them.
         super().__init__(backend_name="vLLM TPU Independent Backend", model_name=model_name, NUM_GPUS=8, CPUS_PER_GPU=1, GPU_FRACTION_VLLM_WORKER=gpu_memory_utilization, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -53,10 +49,11 @@ class VllMTPUIndependentBackend(Backend):
         for i in range(self.num_devices):
             print(f"   > Initializing Model {i+1}/{self.num_devices} on device {jax_devices[i]}...")
             
-            # We clear the backend cache to be safe, though mainly helps with compilation cache
-            jax.clear_backends()
+            # REMOVED: jax.clear_backends() (Deprecated/Removed in modern JAX)
+            # We rely on gc.collect() and the env vars set above
             gc.collect()
 
+            # Force JAX operations to happen on this specific device context
             with jax.default_device(jax_devices[i]):
                 llm = LLM(
                     model=self.model_name,
@@ -65,9 +62,7 @@ class VllMTPUIndependentBackend(Backend):
                     dtype="bfloat16",
                     max_model_len=self.max_model_len,
                     gpu_memory_utilization=self.gpu_memory_utilization,
-                    # ENFORCE EAGER: Reduces memory overhead by skipping full graph capture
                     enforce_eager=True, 
-                    # SWAP SPACE 0: TPUs handle CPU swap poorly, disable it to save RAM
                     swap_space=0,
                 )
                 
@@ -90,11 +85,10 @@ class VllMTPUIndependentBackend(Backend):
         
         state = worker.model_runner.state
         flat_state = list(state.flat_state())
-        # Sorting ensures deterministic parameter indexing across all devices
         flat_state.sort(key=lambda x: str(x[0]))
         
         total_params = len(flat_state)
-        chunk_size = 20 # Increased chunk size slightly for speed
+        chunk_size = 20
 
         class SimpleParam:
             def __init__(self, value):
@@ -151,7 +145,6 @@ class VllMTPUIndependentBackend(Backend):
             chunk_state = nnx.State(chunk_update)
             worker.sync_weights(updated_weights=chunk_state, mappings=chunk_mappings, transpose_keys={}, reshard_fn=None)
             
-            # Crucial: Block to ensure memory is freed before next chunk
             arrays_to_sync = [p.value for p in chunk_update.values()]
             jax.block_until_ready(arrays_to_sync)
 
@@ -169,7 +162,7 @@ class VllMTPUIndependentBackend(Backend):
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[List[Dict[str, str]]]]):
         assert len(genomes) == len(inputs)
         
-        # Use first tokenizer (all are same)
+        # Pre-process prompts
         tokenizer = self.llms[0].get_tokenizer()
         prompts = []
         for i in inputs:
@@ -182,7 +175,6 @@ class VllMTPUIndependentBackend(Backend):
 
         start_time_all = time.time()
         
-        import queue
         task_queue = queue.Queue()
         for t in zip(range(len(genomes)), genomes, prompts):
             task_queue.put(t)
