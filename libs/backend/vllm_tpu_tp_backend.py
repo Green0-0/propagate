@@ -58,6 +58,11 @@ class VllMTPUTPBackend(Backend):
         total_params = len(flat_state)
         chunk_size = 10 
 
+        class SimpleParam:
+            def __init__(self, value, sharding=None):
+                self.value = value
+                self.sharding = sharding
+
         if mode == "update":
             assert isinstance(optimizer, SimpleOpt)
             genome = optimizer.get_representative()
@@ -115,10 +120,6 @@ class VllMTPUTPBackend(Backend):
                     new_val = leaf
 
                 key_str = '.'.join(str(k) for k in path)
-                
-                class SimpleParam:
-                    def __init__(self, value):
-                        self.value = value
 
                 chunk_update[key_str] = SimpleParam(new_val)
                 if sharding is not None:
