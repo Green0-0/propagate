@@ -294,3 +294,6 @@ class VllMTPUDataParallelBackend(Backend):
 
         if self.time_self:
             print(f"#-- All genomes generated in {time.time() - start_time_all:.2f}s --#")
+    
+    def save_weights_to_disk(self, filepath: str, worker_index: int = 0):
+        raise NotImplementedError("Saving weights to disk is not implemented in TPU DP backend.")
