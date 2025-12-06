@@ -59,9 +59,8 @@ class VllMTPUTPBackend(Backend):
         chunk_size = 10 
 
         class SimpleParam:
-            def __init__(self, value, sharding=None):
+            def __init__(self, value):
                 self.value = value
-                self.sharding = sharding
 
         if mode == "update":
             assert isinstance(optimizer, SimpleOpt)
@@ -88,22 +87,19 @@ class VllMTPUTPBackend(Backend):
                 
                 leaf = val
                 sharding = None
-
-                if hasattr(val, 'sharding'):
-                    sharding = val.sharding
-                elif hasattr(val, 'value') and hasattr(val.value, 'sharding'):
-                    sharding = val.value.sharding
-                elif hasattr(leaf, 'sharding'):
-                    sharding = leaf.sharding
-
                 if hasattr(val, 'value'):
                     leaf = val.value
+                if hasattr(val, 'sharding'):
+                    sharding = val.sharding
+                elif hasattr(leaf, 'sharding'):
+                    sharding = leaf.sharding
 
                 if isinstance(leaf, jax.Array) and jnp.issubdtype(leaf.dtype, jnp.floating):
                     aggregate_delta = jnp.zeros(leaf.shape, dtype=jnp.float32)
 
                     for seed, weight in zip(genome.seeds, genome.perturb_scales):
                         key = jax.random.PRNGKey(int(seed))
+                        
                         key = jax.random.fold_in(key, global_param_index)
                         
                         noise = jax.random.normal(key, leaf.shape, dtype=jnp.float32)
@@ -116,22 +112,17 @@ class VllMTPUTPBackend(Backend):
                         new_val = leaf - aggregate_delta
                     else:
                         new_val = leaf + aggregate_delta
-                    
-                    if sharding is not None:
-                        new_val = jax.lax.with_sharding_constraint(new_val, sharding)
                 else:
                     new_val = leaf
 
                 key_str = '.'.join(str(k) for k in path)
-                
-                chunk_update[key_str] = SimpleParam(new_val, sharding)
-                
+
+                chunk_update[key_str] = SimpleParam(new_val)
                 if sharding is not None:
                     chunk_mappings[key_str] = (key_str, sharding)
 
             chunk_state = nnx.State(chunk_update)
             worker.sync_weights(updated_weights=chunk_state, mappings=chunk_mappings, transpose_keys={}, reshard_fn=None)
-            
             arrays_to_sync = [p.value for p in chunk_update.values()]
             jax.block_until_ready(arrays_to_sync)
 
