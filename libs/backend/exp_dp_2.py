@@ -214,3 +214,6 @@ class VllMTPUIndependentBackend(Backend):
 
         if self.time_self:
             print(f"#-- All genomes generated in {time.time() - start_time_all:.2f}s --#")
+
+    def save_weights_to_disk(self, filepath: str):
+        raise NotImplementedError("Saving weights to disk is not implemented for VllMTPUIndependentBackend.")
