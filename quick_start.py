@@ -65,7 +65,7 @@ def main():
         population_size=args.population_size,
         total_steps=args.total_steps,
         learning_rate=args.learning_rate,
-        sigma=args.sigma,
+        perturb_scale=args.sigma,
         momentum=args.momentum,
         beta2=args.beta2,
         optimizer_name=args.optimizer_name,

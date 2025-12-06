@@ -53,10 +53,12 @@ class VLLMBackendLoRA(Backend):
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
         class MyLLM(LLM):
-            def __init__(self, repeat_tokens_buffer_count, repeat_times_kill, rep_check_every, *args, **kwargs):
+            def __init__(self, repeat_tokens_buffer_count, repeat_times_kill, rep_check_every, repeat_tokens_begin_scan_count, repeat_tokens_lookback_length, *args, **kwargs):
                 self.repeat_tokens_buffer_count = repeat_tokens_buffer_count
                 self.repeat_times_kill = repeat_times_kill
                 self.rep_check_every = rep_check_every
+                self.repeat_tokens_begin_scan_count = repeat_tokens_begin_scan_count
+                self.repeat_tokens_lookback_length = repeat_tokens_lookback_length
 
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
                 os.environ["VLLM_RAY_PER_WORKER_GPUS"] = pass_gpu_fraction

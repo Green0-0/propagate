@@ -13,21 +13,21 @@ gc.collect()
 torch.cuda.empty_cache()
 
 try:
-    dataset = load_countdown_dataset(batch_size=50)
+    dataset = load_countdown_dataset(batch_size=300)
     dataset.generate_test_split(test_fraction=0.1, fold_index=1)
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
     backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
 
-    optimizer = SimpleOpt(total_steps=250, learning_rate=0.0005, perturb_scale=0.001, scheduler="exponential")
+    optimizer = SimpleOpt(total_steps=250, learning_rate=0.001, perturb_scale=0.001, norm_by_mean=False, norm_by_stddev=False)
 
-    trainer = SimpleTrainer(population_size=28,
-                            mirror=False,
+    trainer = SimpleTrainer(population_size=14,
+                            mirror=True,
                             optimizer=optimizer,
                             backend=backend,
                             dataset=dataset,
-                            wandb_project="propagate_tests",
+                            wandb_project="propagate_optimizers",
                             validate_every=10,
                             print_samples=True,
     )

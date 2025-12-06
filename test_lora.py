@@ -19,13 +19,9 @@ try:
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
 
-    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.5, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True)
+    backend = VLLMBackendLoRA(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.75, Sampler=sampler, lora_rank=8, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True)
     
-    #optimizer = SimpleOpt(total_steps=250, learning_rate=3, perturb_scale=0.06, norm_by_mean=False, norm_by_stddev=False)
-    #optimizer = MomentumOpt(total_steps=250, learning_rate=1.5, perturb_scale=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
-    #optimizer = MuonOpt(total_steps=250, learning_rate=10, perturb_scale=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True)
-    optimizer = AdamOpt(total_steps=250, learning_rate=0.01, perturb_scale=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True, beta2=0.6)
-    #optimizer = TwoHalvesEstimator(total_steps=250, learning_rate=3, perturb_scale=0.06, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=True, momentum=0, ema_decay=0.5)
+    optimizer = SimpleOpt(total_steps=250, learning_rate=3, perturb_scale=0.06, norm_by_mean=False, norm_by_stddev=False)
 
     trainer = SimpleTrainer(population_size=28,
                             mirror=True,

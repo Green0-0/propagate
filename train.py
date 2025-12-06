@@ -152,7 +152,7 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
              population_size = 30,
              total_steps = 250,
              learning_rate = 3,
-             sigma = 0.06,
+             perturb_scale = 0.06,
              momentum = 0.6,
              beta2 = 0.95,
              optimizer_name = "none",
@@ -162,8 +162,6 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
     from libs.backend.vllm_lorabackend import VLLMBackendLoRA
     from libs.trainer import SimpleTrainer
     from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
-    from libs.optimizer_th import TwoHalvesEstimatorOpt
-    from libs.optimizer_stein import SteinOpt
     from vllm import SamplingParams
 
     import gc
@@ -193,17 +191,13 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
             backend = VLLMBackend(model_name=model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, sampler=sampler, use_tqdm=False, time_self=True)
 
         if optimizer_name == "none":
-            optimizer = SimpleOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False)
+            optimizer = SimpleOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=perturb_scale, norm_by_mean=False, norm_by_stddev=False)
         elif optimizer_name == "momentum":
-            optimizer = MomentumOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum)
+            optimizer = MomentumOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=perturb_scale, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum)
         elif optimizer_name == "muon":
-            optimizer = MuonOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum)
+            optimizer = MuonOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=perturb_scale, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum)
         elif optimizer_name == "adam":
-            optimizer = AdamOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum, beta2=beta2)
-        elif optimizer_name == "two_halves":
-            optimizer = TwoHalvesEstimatorOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum, gamma=0.25, ema_decay=beta2)
-        elif optimizer_name == "stein":
-            optimizer = SteinOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=sigma, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora)
+            optimizer = AdamOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=perturb_scale, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum, beta2=beta2)
 
         trainer = SimpleTrainer(population_size=population_size,
                                 mirror=True,
@@ -230,14 +224,14 @@ if __name__ == "__main__":
              gpu_fraction=0.8,
              lora_rank=8,
              ctx_len=4096,
-             batch_size=50,
+             batch_size=100,
              population_size=28,
              total_steps=250,
              learning_rate=3,
-             sigma=0.06,
+             perturb_scale=0.06,
              momentum=0.6,
              beta2=0.95,
              optimizer_name="none",
              wandb_project="propagate_optimizers",
-             target_dataset = "countdown",
+             target_dataset = "acereason",
              lora = True)
