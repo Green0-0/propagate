@@ -17,7 +17,7 @@ from libs.optimizers import Optimizer, SimpleOpt
 
 logging.getLogger("vllm.tpu_inference").setLevel(logging.WARNING)
 
-class VllmTPUTPBackend(Backend):
+class VllMTPUTPBackend(Backend):
     def __init__(self, model_name: str, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False, gpu_memory_utilization: float = 0.6, tensor_parallel_size: int = 8):
         super().__init__(backend_name="vLLM TPU Backend", model_name=model_name, NUM_GPUS=tensor_parallel_size, CPUS_PER_GPU=1, GPU_FRACTION_VLLM_WORKER=gpu_memory_utilization, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         self.tensor_parallel_size = tensor_parallel_size
