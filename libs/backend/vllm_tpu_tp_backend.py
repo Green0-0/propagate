@@ -1,4 +1,5 @@
 import os
+from platform import node
 import sys
 import time
 import gc
@@ -13,6 +14,7 @@ os.environ.pop("TPU_MULTIHOST_BACKEND", None)
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from flax.nnx import Param 
 from vllm import LLM, SamplingParams
 
 from libs.backend.backend_abc import Backend
@@ -37,6 +39,15 @@ class VllMTPUTPBackend(Backend):
 
         print("#-- vLLM TPU Backend Initialized Successfully --#")
 
+    def is_trainable_param(path, node):
+        if not isinstance(node, Param):
+            return False
+        key_str = '.'.join(map(str, path))
+        banned = ('rotary', 'kv_cache','inv_freq', 'cos_cached', 'sin_cached')
+        if any(b in key_str.lower() for b in banned):
+            return False
+        return True 
+    
     def _process_weights_chunked(self, genome: Genome = None, optimizer: Optimizer = None, mode: str = "perturb"):
         worker = self.llm.llm_engine.model_executor.driver_worker
         state = worker.model_runner.state
@@ -72,6 +83,12 @@ class VllMTPUTPBackend(Backend):
 
             for path in chunk_paths:                
                 val = get_value_by_path(current_state, path)
+                if not self.is_trainable_param(path, val):
+                    leaf = val.value if hasattr(val, 'value') else val
+                    
+                    key_str = '.'.join(str(k) for k in path)
+                    chunk_update[key_str] = SimpleParam(leaf)
+                    continue
                 leaf = val
                 sharding = None
                 if hasattr(val, 'value'):
