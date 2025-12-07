@@ -85,7 +85,6 @@ class VllMTPUTPBackend(Backend):
                 val = get_value_by_path(current_state, path)
                 if not self.is_trainable_param(path, val):
                     leaf = val.value if hasattr(val, 'value') else val
-                    
                     key_str = '.'.join(str(k) for k in path)
                     chunk_update[key_str] = SimpleParam(leaf)
                     continue
