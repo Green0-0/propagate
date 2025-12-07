@@ -22,6 +22,8 @@ from libs.backend.backend_abc import Backend
 from libs.genome import Genome
 from libs.optimizers import Optimizer, SimpleOpt
 
+from vllm import SamplingParams
+
 # -- Worker Function --
 def _tpu_worker_fn(rank: int, 
                    model_name: str, 
