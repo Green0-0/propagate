@@ -39,7 +39,7 @@ class VllMTPUTPBackend(Backend):
 
         print("#-- vLLM TPU Backend Initialized Successfully --#")
 
-    def is_trainable_param(path, node):
+    def is_trainable_param(self, path, node):
         if not isinstance(node, Param):
             return False
         key_str = '.'.join(map(str, path))
