@@ -230,6 +230,7 @@ class VllMTPUDPBackend(Backend):
             "stop": sampler.stop,
             # Add other necessary fields from your sampler object
         }
+        self.gpu_memory_utilization = gpu_memory_utilization
 
     def startup(self, trainer=None):
         print(f"#-- Spawning {self.num_workers} vLLM TPU Workers (DP Mode) --#")
