@@ -35,21 +35,12 @@ class VllMTPUTPBackend(Backend):
 
         self.llm = LLM(model=self.model_name, tensor_parallel_size=self.tensor_parallel_size, trust_remote_code=True, dtype="bfloat16", max_model_len=self.max_model_len, gpu_memory_utilization=self.gpu_memory_utilization)
 
-        self.model_worker = self._get_worker()
         print("#-- vLLM TPU Backend Initialized Successfully --#")
 
-    def _get_worker(self):
-        if hasattr(self.llm.llm_engine, 'model_executor'):
-            return self.llm.llm_engine.model_executor.driver_worker
-        elif hasattr(self.llm.llm_engine, 'engine') and hasattr(self.llm.llm_engine.engine, 'model_executor'):
-            return self.llm.llm_engine.engine.model_executor.driver_worker
-        else:
-            raise AttributeError("Could not find model_executor in vLLM engine structure.")
-
     def _process_weights_chunked(self, genome: Genome = None, optimizer: Optimizer = None, mode: str = "perturb"):
-        worker = self.model_worker
-        
+        worker = self.llm.llm_engine.model_executor.driver_worker
         state = worker.model_runner.state
+        
         flat_state = list(state.flat_state())
         flat_state.sort(key=lambda x: str(x[0]))
         
@@ -63,11 +54,12 @@ class VllMTPUTPBackend(Backend):
         if mode == "update":
             assert isinstance(optimizer, SimpleOpt)
             genome = optimizer.get_representative()
-        
+            
+        keys = [(jax.random.PRNGKey(int(seed)), weight) for seed, weight in zip(genome.seeds, genome.perturb_scales)]
+
         for i in range(0, total_params, chunk_size):
             current_state = worker.model_runner.state
-            chunk_items = flat_state[i : i + chunk_size]
-            chunk_paths = [item[0] for item in chunk_items]
+            chunk_paths = [item[0] for item in flat_state[i:i+chunk_size]]
             
             chunk_update = {}
             chunk_mappings = {}
@@ -78,11 +70,8 @@ class VllMTPUTPBackend(Backend):
                     node = node[p]
                 return node
 
-            for chunk_rel_idx, path in enumerate(chunk_paths):
-                global_param_index = i + chunk_rel_idx
-                
+            for path in chunk_paths:                
                 val = get_value_by_path(current_state, path)
-                
                 leaf = val
                 sharding = None
                 if hasattr(val, 'value'):
@@ -93,16 +82,14 @@ class VllMTPUTPBackend(Backend):
                     sharding = leaf.sharding
 
                 if isinstance(leaf, jax.Array) and jnp.issubdtype(leaf.dtype, jnp.floating):
-                    aggregate_delta = jnp.zeros(leaf.shape, dtype=jnp.float32)
-
-                    for seed, weight in zip(genome.seeds, genome.perturb_scales):
-                        key = jax.random.PRNGKey(int(seed))
-                        key = jax.random.fold_in(key, global_param_index)
-                        noise = jax.random.normal(key, leaf.shape, dtype=jnp.float32)
-                        aggregate_delta = aggregate_delta + (noise * weight)
-                    
-                    aggregate_delta = aggregate_delta.astype(leaf.dtype)
-                    
+                    aggregate_delta = jnp.zeros(leaf.shape, dtype=leaf.dtype)
+                    #TODO: Future optimization: Use jax jit to speedup and reduce memory here
+                    for k, item in enumerate(keys):
+                        seed_key, weight = item
+                        key, subkey = jax.random.split(seed_key)
+                        noise = jax.random.normal(subkey, leaf.shape, dtype=leaf.dtype) * weight
+                        keys[k] = (key, weight)
+                        aggregate_delta = aggregate_delta + noise
                     if mode == "restore":
                         new_val = leaf - aggregate_delta
                     else:
@@ -115,12 +102,9 @@ class VllMTPUTPBackend(Backend):
                 chunk_update[key_str] = SimpleParam(new_val)
                 if sharding is not None:
                     chunk_mappings[key_str] = (key_str, sharding)
-
+                    
             chunk_state = nnx.State(chunk_update)
             worker.sync_weights(updated_weights=chunk_state, mappings=chunk_mappings, transpose_keys={}, reshard_fn=None)
-            arrays_to_sync = [p.value for p in chunk_update.values()]
-            jax.block_until_ready(arrays_to_sync)
-
             del chunk_update
             del chunk_mappings
             gc.collect()
