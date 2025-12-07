@@ -5,6 +5,11 @@ import gc
 from typing import List, Dict, Any
 import logging
 
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+os.environ.pop("TPU_MULTIHOST_BACKEND", None)
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -28,9 +33,6 @@ class VllMTPUTPBackend(Backend):
         """Initialize the vLLM TPU engine."""
         print(f"#-- Initializing vLLM TPU Backend (TP={self.tensor_parallel_size}) --#")
 
-        os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
-        os.environ.pop("TPU_MULTIHOST_BACKEND", None)
-
         self.llm = LLM(model=self.model_name, tensor_parallel_size=self.tensor_parallel_size, trust_remote_code=True, dtype="bfloat16", max_model_len=self.max_model_len, gpu_memory_utilization=self.gpu_memory_utilization)
 
         self.model_worker = self._get_worker()
@@ -45,10 +47,6 @@ class VllMTPUTPBackend(Backend):
             raise AttributeError("Could not find model_executor in vLLM engine structure.")
 
     def _process_weights_chunked(self, genome: Genome = None, optimizer: Optimizer = None, mode: str = "perturb"):
-        """
-        Handles weight perturbation, restoration, and updates in chunks.
-        FIXED: Uses parameter index instead of hash(path) for stable RNG.
-        """
         worker = self.model_worker
         
         state = worker.model_runner.state
