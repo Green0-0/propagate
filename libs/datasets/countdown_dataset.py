@@ -17,7 +17,7 @@ class AnswerRewardGenerator(RewardGenerator):
         numbers = input[self.numbers_key]
         target = input[self.target_key]
 
-        def reward_function(response: str) -> float:
+        def reward_function(response: str, **kwargs) -> float:
             answer_regex = r"<answer>(.*?)<\/answer>"
             all_matches = re.findall(answer_regex, response, re.DOTALL)
             if not all_matches:

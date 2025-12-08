@@ -28,7 +28,8 @@ class Dataset:
         reward_func_ratio: float = 0.1,
         passk: int = 1,
         passk_proportion: float = 0.1,
-        passk_minimum: float = 0.9,                                                              
+        passk_minimum: float = 0.9,
+        postprocess_reward: Callable[[List[Genome]], None] = None                                                           
     ):
         self.batch_size = batch_size
         self.suffix = suffix
@@ -46,6 +47,7 @@ class Dataset:
         self.passk = passk
         self.passk_proportion = passk_proportion
         self.passk_minimum = passk_minimum
+        self.postprocess_reward = postprocess_reward
 
         self.pairs_train = []
         for pair in dataset_pairs:
@@ -128,6 +130,7 @@ class Dataset:
         """
         if not self.last_batch or len(self.last_batch) == 0:
             raise ValueError("No last batch available. Score should be done on a batch after outputs are generated.")
+        all_rewards = []
         for i, genome in enumerate(genomes):
             if not genome.latest_outputs:
                 raise ValueError("Genome does not have outputs for the last batch.")
@@ -154,10 +157,27 @@ class Dataset:
                             adjusted_rewards[j + k] = (max_reward, question_rewards[k][1])
             else:
                 adjusted_rewards = latest_rewards
-            genome.latest_rewards = [
-                (ans_reward * (1 - self.reward_func_ratio)) + (fmt_reward * self.reward_func_ratio)
-                for ans_reward, fmt_reward in adjusted_rewards
-            ]
+            all_rewards.append(adjusted_rewards)
+        if self.last_batch_is_train:
+            for i, genome in enumerate(genomes):
+                adjusted_rewards = all_rewards[i]
+                genome.latest_rewards = [ans_reward for ans_reward, fmt_reward in adjusted_rewards]
+            if self.postprocess_reward is not None:
+                self.postprocess_reward(genomes)
+            for i, genome in enumerate(genomes):
+                adjusted_rewards = all_rewards[i]
+                genome.latest_rewards = [
+                        genome.latest_rewards[j] * (1 - self.reward_func_ratio) + fmt_reward * self.reward_func_ratio
+                        for j, (_, fmt_reward) in enumerate(adjusted_rewards)
+                    ]
+        else:
+            for i, genome in enumerate(genomes):
+                adjusted_rewards = all_rewards[i]
+                genome.latest_rewards = [
+                    ans_reward
+                    for ans_reward, fmt_reward in adjusted_rewards
+                ]
+        for genome in genomes:
             mean_reward = sum(genome.latest_rewards) / len(genome.latest_rewards)
             genome.historical_rewards.append(mean_reward)
 

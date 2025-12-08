@@ -220,15 +220,15 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
     pass
 
 if __name__ == "__main__":
-    do_train(model_source="Qwen/Qwen2.5-3B-Instruct", 
+    do_train(model_source="G-reen/SmolLM3-3B-SFT", 
              gpu_fraction=0.8,
              lora_rank=8,
              ctx_len=4096,
              batch_size=100,
              population_size=28,
              total_steps=250,
-             learning_rate=3,
-             perturb_scale=0.06,
+             learning_rate=24,
+             perturb_scale=0.48,
              momentum=0.6,
              beta2=0.95,
              optimizer_name="none",
