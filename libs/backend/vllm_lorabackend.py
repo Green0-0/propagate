@@ -27,12 +27,12 @@ import gc
 from libs.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
-    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 16, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 15, rep_check_every: int = 100, repeat_tokens_begin_scan_count: int = 500, repeat_tokens_lookback_length: int = 500):
+    def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 8, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 15, rep_check_every: int = 100, repeat_tokens_begin_scan_count: int = 500, repeat_tokens_lookback_length: int = 500):
         super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
+        self.lora_model_source = lora_model_source if lora_model_source is not None else model_name
         self.lora_rank = lora_rank
         self.lora_perturb_target: str = lora_perturb_target
         self.init_lora_weights = init_lora_weights
-        self.lora_model_source = lora_model_source
         self.norm_scale_update = norm_scale_update
         if "a" not in lora_perturb_target.lower() and "b" not in lora_perturb_target.lower():
             raise ValueError(f"Invalid lora_perturb_target: {lora_perturb_target}. Must be 'a' or 'b' or 'a-' or 'b-' or 'ab'.")
@@ -262,12 +262,8 @@ class VLLMBackendLoRA(Backend):
         signal.signal(signal.SIGTERM, sig_handler)
 
         print("#-- Creating LoRA adapters --#")
-        default_target_modules = [
-            "q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"
-        ]
+        default_target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
-        if self.lora_model_source is None:
-            self.lora_model_source = self.model_name
         base_model = AutoModelForCausalLM.from_pretrained(
             self.lora_model_source,
             torch_dtype=torch.float16,
@@ -288,39 +284,6 @@ class VLLMBackendLoRA(Backend):
                 for name, param in peft_model.named_parameters():
                     if "lora_" in name:
                         param.data.zero_()
-        elif self.init_lora_weights == "symmetric":
-            assert self.lora_rank % 2 == 0, "Rank must be even for symmetric cancellation."
-            print(f"#-- Initializing rank {self.lora_rank} rsLoRA adapters with Symmetric Cancellation --#")
-            lora_cfg = LoraConfig(
-                r=self.lora_rank,
-                lora_alpha=1,
-                use_rslora=True,
-                target_modules=default_target_modules,
-                init_lora_weights=False
-            )
-            
-            peft_model = get_peft_model(base_model, lora_cfg)
-
-            optimal_std = math.sqrt(0.5) 
-            half_rank = self.lora_rank // 2
-            update_num = 0
-            with torch.no_grad():
-                for name, module in peft_model.named_modules():
-                    if hasattr(module, "lora_A") and hasattr(module, "lora_B"):
-                        adapter_name = "default" 
-                        if adapter_name in module.lora_A:
-                            update_num += 1
-                            d_out = module.lora_B[adapter_name].weight.shape[0]
-                            d_in = module.lora_A[adapter_name].weight.shape[1]
-                            U = torch.randn(d_out, half_rank, dtype=torch.float16) * optimal_std
-                            V = torch.randn(half_rank, d_in, dtype=torch.float16) * optimal_std
-                            B_init = torch.cat([U, -U], dim=1)
-                            A_init = torch.cat([V, V], dim=0)
-                            
-                            module.lora_B[adapter_name].weight.copy_(B_init)
-                            module.lora_A[adapter_name].weight.copy_(A_init)
-
-            print(f"#-- Applied symmetric init (std={optimal_std:.4f}) to {update_num} adapters. --#")
         else:
             print(f"#-- Initializing rank {self.lora_rank} LoRA adapters with {self.init_lora_weights} --#")
             lora_cfg = LoraConfig(
@@ -342,14 +305,8 @@ class VLLMBackendLoRA(Backend):
             peft_model.save_pretrained(p, safe_serialization=True)
             self.lora_paths[name] = p
 
-        try:
-            del peft_model
-        except Exception:
-            pass
-        try:
-            del base_model
-        except Exception:
-            pass
+        del peft_model
+        del base_model
         gc.collect()
 
         print(f"#-- Preloading {len(lora_names)} LoRA adapters into {len(self.inference_engines)} engine(s) --#")
