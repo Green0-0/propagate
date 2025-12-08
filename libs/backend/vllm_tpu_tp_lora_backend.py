@@ -22,6 +22,7 @@ from peft import LoraConfig, get_peft_model
 from libs.backend.backend_abc import Backend
 from libs.genome import Genome
 from libs.optimizers import Optimizer
+from libs.trainer import SimpleTrainer
 
 # -----------------------------------------------------------------------------
 # Helper: Worker Extension to inspect/collect LoRA tensors on the generic worker
