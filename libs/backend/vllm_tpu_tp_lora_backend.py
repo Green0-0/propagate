@@ -132,7 +132,7 @@ class VllMTPUTPLoRABackend(Backend):
         
         max_loras_per_worker = self.population_size
 
-        print(f"#-- Starting LLM with enable_lora=True, max_loras={max_loras} --#")
+        print(f"#-- Starting LLM with enable_lora=True, max_loras={max_loras_per_worker} --#")
         self.llm = LLM(
             model=self.model_name, 
             tensor_parallel_size=self.tensor_parallel_size, 
@@ -141,7 +141,7 @@ class VllMTPUTPLoRABackend(Backend):
             max_model_len=self.max_model_len, 
             gpu_memory_utilization=self.GPU_FRACTION_VLLM_WORKER,
             enable_lora=True,
-            max_loras=max_loras,
+            max_loras=max_loras_per_worker,
             max_lora_rank=max(self.lora_rank, 8),
             max_cpu_loras=1000,
         )
