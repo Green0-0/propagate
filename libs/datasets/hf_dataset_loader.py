@@ -1,6 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional
 from libs.datasets.dataset import Dataset
 from libs.datasets.reward import FormatRewardGenerator, RewardGenerator
+from libs.datasets.postprocessreward import PostProcessReward
 
 def load_hf_dataset(
     hf_data,
@@ -15,7 +16,8 @@ def load_hf_dataset(
     passk: int = 1,
     passk_proportion: float = 0.1,
     passk_minimum: float = 0.9,
-    force_reuse_batches: bool = False
+    force_reuse_batches: bool = False,
+    post_process_reward: PostProcessReward = None
 ) -> Dataset:
     """
     A generalized loader for Hugging Face datasets that prepares data for RL training.
@@ -73,5 +75,6 @@ def load_hf_dataset(
         reward_func_ratio=reward_func_ratio,
         passk=passk,
         passk_proportion=passk_proportion,
-        passk_minimum=passk_minimum
+        passk_minimum=passk_minimum,
+        postprocess_reward=post_process_reward
     )

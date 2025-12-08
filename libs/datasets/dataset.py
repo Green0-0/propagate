@@ -214,6 +214,8 @@ def _copy_dataset_config(source: Dataset) -> Dataset:
     new_dataset.last_batch_is_train = True
     new_dataset.pairs_train = []
     new_dataset.pairs_test = []
+    
+    new_dataset.postprocess_reward = source.postprocess_reward
     return new_dataset
 
 def merge_dataset(datasets: List[Dataset], shuffle: bool = True) -> Dataset:

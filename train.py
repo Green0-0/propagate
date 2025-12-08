@@ -3,6 +3,7 @@ from libs.backend.vllm_backend import VLLMBackend
 
 def load_datasets(batch_size: int = 50):
     from datasets import load_dataset, Dataset
+    from libs.datasets.postprocessreward import DynamicLengthReward
     from libs.datasets.hf_dataset_loader import load_hf_dataset
     from libs.datasets.dataset import balanced_merge
     from libs.datasets.countdown_dataset import AnswerRewardGenerator
@@ -30,6 +31,8 @@ def load_datasets(batch_size: int = 50):
             "letter_answer": letter_answer
         }
     
+    dlr = DynamicLengthReward()
+
     datasets = {}
     ace_hf = load_dataset("nvidia/AceReason-Math", split="train")
     ace_hf = ace_hf.shuffle(seed=42)
@@ -42,7 +45,8 @@ def load_datasets(batch_size: int = 50):
         answer_reward=MathVerifyRewardGenerator(target_answer_key="answer"),
         input_column="problem",
         target_column="answer",
-        force_reuse_batches=False
+        force_reuse_batches=False,
+        post_process_reward=dlr
     )
     
     mmlu_hf = load_dataset("cais/mmlu", "auxiliary_train", split="train")
@@ -62,7 +66,8 @@ def load_datasets(batch_size: int = 50):
             lowercase=False
         ),
         input_column="formatted_question",
-        target_column="letter_answer"
+        target_column="letter_answer",
+        post_process_reward=dlr
     )
 
     mega_hf = load_dataset("MegaScience/MegaScience", split="train")
@@ -75,7 +80,8 @@ def load_datasets(batch_size: int = 50):
         hf_data=mega_hf,
         answer_reward=MathVerifyRewardGenerator(target_answer_key="reference_answer"),
         input_column="question",
-        target_column="reference_answer"
+        target_column="reference_answer",
+        post_process_reward=dlr
     )
 
     gsm8k_hf = load_dataset("openai/gsm8k", "main", split="train")
@@ -104,7 +110,8 @@ def load_datasets(batch_size: int = 50):
             target_type=int
         ),
         input_column="question",
-        target_column="clean_answer"
+        target_column="clean_answer",
+        post_process_reward=dlr
     )
 
     countdown_hf = load_dataset("Jiayi-Pan/Countdown-Tasks-3to4", split="train")
@@ -136,7 +143,8 @@ def load_datasets(batch_size: int = 50):
         hf_data=countdown_hf,
         answer_reward=AnswerRewardGenerator(numbers_key="nums", target_key="target"),
         input_column="prompt",
-        target_column="target"
+        target_column="target",
+        post_process_reward=dlr
     )
 
     merged_datasets = balanced_merge([datasets["acereason"], datasets["mmlu"], datasets["megascience"]])
@@ -220,15 +228,15 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
     pass
 
 if __name__ == "__main__":
-    do_train(model_source="G-reen/SmolLM3-3B-SFT", 
+    do_train(model_source="Qwen/Qwen3-4B-Base", 
              gpu_fraction=0.8,
              lora_rank=8,
              ctx_len=4096,
              batch_size=100,
              population_size=28,
              total_steps=250,
-             learning_rate=24,
-             perturb_scale=0.48,
+             learning_rate=3,
+             perturb_scale=0.06,
              momentum=0.6,
              beta2=0.95,
              optimizer_name="none",
