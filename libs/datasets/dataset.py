@@ -163,7 +163,7 @@ class Dataset:
                 adjusted_rewards = all_rewards[i]
                 genome.latest_rewards = [ans_reward for ans_reward, fmt_reward in adjusted_rewards]
             if self.postprocess_reward is not None:
-                self.postprocess_reward(genomes)
+                self.postprocess_reward.post_process_rewards(genomes)
             for i, genome in enumerate(genomes):
                 adjusted_rewards = all_rewards[i]
                 genome.latest_rewards = [
