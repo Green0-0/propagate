@@ -4,6 +4,7 @@ from libs.backend.vllm_backend import VLLMBackend
 def load_datasets(batch_size: int = 50):
     from datasets import load_dataset, Dataset
     from libs.datasets.postprocessreward import DynamicLengthReward
+    from libs.datasets.postprocessreward import NormalizedLengthReward
     from libs.datasets.hf_dataset_loader import load_hf_dataset
     from libs.datasets.dataset import balanced_merge
     from libs.datasets.countdown_dataset import AnswerRewardGenerator
@@ -31,7 +32,8 @@ def load_datasets(batch_size: int = 50):
             "letter_answer": letter_answer
         }
     
-    dlr = DynamicLengthReward()
+    dlr = DynamicLengthReward(words_target=2000, length_penalty_percent=0.1, length_reward_percent=0.3)
+    nlr = NormalizedLengthReward(length_penalty_percent=0.1, length_reward_percent=0.3)
 
     datasets = {}
     ace_hf = load_dataset("nvidia/AceReason-Math", split="train")
@@ -46,7 +48,7 @@ def load_datasets(batch_size: int = 50):
         input_column="problem",
         target_column="answer",
         force_reuse_batches=False,
-        post_process_reward=dlr
+        post_process_reward=dlr,
     )
     
     mmlu_hf = load_dataset("cais/mmlu", "auxiliary_train", split="train")
@@ -228,15 +230,15 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
     pass
 
 if __name__ == "__main__":
-    do_train(model_source="Qwen/Qwen3-4B-Base", 
+    do_train(model_source="G-reen/SmolLM3-3B-SFT", 
              gpu_fraction=0.8,
              lora_rank=8,
-             ctx_len=4096,
-             batch_size=100,
-             population_size=28,
+             ctx_len=8192,
+             batch_size=50,
+             population_size=84,
              total_steps=250,
-             learning_rate=3,
-             perturb_scale=0.06,
+             learning_rate=6,
+             perturb_scale=0.12,
              momentum=0.6,
              beta2=0.95,
              optimizer_name="none",
