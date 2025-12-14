@@ -10,6 +10,7 @@ class Genome:
     perturb_scales: List[float]
     historical_rewards: List[float]
     
+    latest_inputs: List[str]
     latest_outputs: List[str]
     latest_rewards: List[float]
     
@@ -39,6 +40,8 @@ class Genome:
         self.seeds = []
         self.perturb_scales = []
         self.historical_rewards = []
+        
+        self.latest_prompts = []
         self.latest_outputs = []
         self.latest_rewards = []
         self.starting_index = 0

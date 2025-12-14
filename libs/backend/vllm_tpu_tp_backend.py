@@ -139,14 +139,17 @@ class VllMTPUTPBackend(Backend):
         
         # Pre-process prompts
         prompts = []
-        for i in inputs:
+        for idk, i in enumerate(inputs):
             prompt_genome = []
+            input_genome_content = []
             for j in i:
+                input_genome_content.append(j[-1]['content'])
                 s = self.llm.get_tokenizer().apply_chat_template(j, tokenize=False, add_generation_prompt=True)
                 if suffix is not None:
                     s = s + suffix
                 prompt_genome.append(s)
             prompts.append(prompt_genome)
+            genomes[idk].latest_inputs = input_genome_content
 
         start_time_all = time.time()
 

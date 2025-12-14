@@ -32,7 +32,7 @@ def load_datasets(batch_size: int = 50):
             "letter_answer": letter_answer
         }
     
-    dlr = DynamicLengthReward(words_target=2000, length_penalty_percent=0.1, length_reward_percent=0.3)
+    #dlr = DynamicLengthReward(words_target=2000, length_penalty_percent=0.1, length_reward_percent=0.3)
     nlr = NormalizedLengthReward(length_penalty_percent=0.1, length_reward_percent=0.3)
 
     datasets = {}
@@ -48,7 +48,7 @@ def load_datasets(batch_size: int = 50):
         input_column="problem",
         target_column="answer",
         force_reuse_batches=False,
-        post_process_reward=dlr,
+        post_process_reward=nlr,
     )
     
     mmlu_hf = load_dataset("cais/mmlu", "auxiliary_train", split="train")
@@ -69,7 +69,7 @@ def load_datasets(batch_size: int = 50):
         ),
         input_column="formatted_question",
         target_column="letter_answer",
-        post_process_reward=dlr
+        post_process_reward=nlr
     )
 
     mega_hf = load_dataset("MegaScience/MegaScience", split="train")
@@ -83,7 +83,7 @@ def load_datasets(batch_size: int = 50):
         answer_reward=MathVerifyRewardGenerator(target_answer_key="reference_answer"),
         input_column="question",
         target_column="reference_answer",
-        post_process_reward=dlr
+        post_process_reward=nlr
     )
 
     gsm8k_hf = load_dataset("openai/gsm8k", "main", split="train")
@@ -113,7 +113,7 @@ def load_datasets(batch_size: int = 50):
         ),
         input_column="question",
         target_column="clean_answer",
-        post_process_reward=dlr
+        post_process_reward=nlr
     )
 
     countdown_hf = load_dataset("Jiayi-Pan/Countdown-Tasks-3to4", split="train")
@@ -146,7 +146,7 @@ def load_datasets(batch_size: int = 50):
         answer_reward=AnswerRewardGenerator(numbers_key="nums", target_key="target"),
         input_column="prompt",
         target_column="target",
-        post_process_reward=dlr
+        post_process_reward=nlr
     )
 
     merged_datasets = balanced_merge([datasets["acereason"], datasets["mmlu"], datasets["megascience"]])

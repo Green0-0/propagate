@@ -338,14 +338,17 @@ class VLLMBackendLoRA(Backend):
             raise ValueError(f"Population size {len(genomes)} exceeds max population size {self.population_size} for this backend.")
         
         prompts = []
-        for i in inputs:
+        for idk, i in enumerate(inputs):
             prompt_genome = []
+            input_genome_content = []
             for j in i:
+                input_genome_content.append(j[-1]['content'])
                 s = self.tokenizer.apply_chat_template(j, tokenize=False, add_generation_prompt=True)
                 if suffix is not None:
                     s = s + suffix
                 prompt_genome.append(s)
             prompts.append(prompt_genome)
+            genomes[idk].latest_inputs = input_genome_content
 
         genome_chunks = np.array_split(genomes, self.NUM_GPUS)
         prompt_chunks = np.array_split(prompts, self.NUM_GPUS)
