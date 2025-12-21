@@ -3,7 +3,6 @@ from libs.datasets.countdown_dataset import load_countdown_dataset
 from libs.genome import Genome
 from libs.trainer import SimpleTrainer
 from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
-from libs.optimizer_th import TwoHalvesEstimatorOpt
 from vllm import SamplingParams
 
 import gc

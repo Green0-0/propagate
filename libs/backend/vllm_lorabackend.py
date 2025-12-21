@@ -318,7 +318,12 @@ class VLLMBackendLoRA(Backend):
             )
             peft_model = get_peft_model(base_model, lora_cfg)
 
-        self._lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_")
+        shared_base_path = os.path.join(os.getcwd(), "vllm_lora_cache")
+        os.makedirs(shared_base_path, exist_ok=True)
+
+        self._lora_tmp_root = tempfile.mkdtemp(prefix="vllm_loras_", dir=shared_base_path)
+
+        print(f"#-- Created Shared LoRA storage at: {self._lora_tmp_root} --#")
 
         lora_names = [f"lora_{i}" for i in range(max_loras_per_worker)]
         self.lora_paths = {} 
