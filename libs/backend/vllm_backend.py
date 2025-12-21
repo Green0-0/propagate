@@ -19,16 +19,19 @@ from libs.optimizers import Optimizer
 class VLLMBackend(Backend):
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
         super().__init__(backend_name="Standard vLLM Backend", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
-
+    
     def startup(self, trainer=None):
         """
         Initializes the vLLM backend with Ray actors and placement groups.
+        Automatically detects single-node vs multi-node mode based on environment.
         """
         # Set environment variables for vLLM and Ray
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
         os.environ.pop("RAY_GCS_SERVER_ADDRESS", None)
+        
         pass_gpu_fraction = str(self.GPU_FRACTION_VLLM_WORKER)
+        
         #--------------------------------------------------------#
         #                CUSTOM CLASSES DEFINITION               #
         #--------------------------------------------------------#
@@ -39,17 +42,58 @@ class VLLMBackend(Backend):
                 os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
                 super().__init__(*args, **kwargs)
         #-----------------------------------------------------#
-
         print(f"#-- Initializing Backend {self.backend_name} --#")
         print(f"#-- GPUS: {self.NUM_GPUS}, CPUS per GPU: {self.CPUS_PER_GPU}, GPU Fraction VLLM Worker: {self.GPU_FRACTION_VLLM_WORKER} --#")
-
-        print("#-- Spawning Training Actors with vLLM backends --#")
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
-        pgs = [placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}]) for _ in range(self.NUM_GPUS)]
+        
+        head_ip = os.environ.get("head_node_ip")
+        if head_ip is not None:
+            # === MULTI-NODE MODE ===
+            # Connect to existing Ray cluster started by SLURM script
+            self.multi_node = True
+            ray_address = f"{head_ip}:6379"
+            print(f"#-- Multi-node mode: connecting to Ray cluster at {ray_address} --#")
+            
+            ray.init(
+                address=ray_address,
+                include_dashboard=False, 
+                ignore_reinit_error=True
+            )
+            
+            resources = ray.cluster_resources()
+            print(f"#-- Ray cluster resources: {resources} --#")
+            available_gpus = int(resources.get("GPU", 0))
+            
+            if available_gpus < self.NUM_GPUS:
+                raise RuntimeError(f"Requested {self.NUM_GPUS} GPUs but only {available_gpus} available in cluster")
+            
+            print(f"#-- Creating {self.NUM_GPUS} placement groups with SPREAD strategy --#")
+            pgs = [
+                placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}], strategy="SPREAD") 
+                for _ in range(self.NUM_GPUS)
+            ]
+        else:
+            # === SINGLE-NODE MODE ===
+            # Start local Ray instance
+            self.multi_node = False
+            print("#-- Single-node mode: starting local Ray instance --#")
+            
+            ray.init(
+                address="local", 
+                include_dashboard=False, 
+                ignore_reinit_error=True
+            )
+            
+            print(f"#-- Creating {self.NUM_GPUS} placement groups --#")
+            pgs = [
+                placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}]) 
+                for _ in range(self.NUM_GPUS)
+            ]        
         ray.get([pg.ready() for pg in pgs])
+        print(f"#-- All {self.NUM_GPUS} placement groups ready --#")
         strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
-
+        
+        print("#-- Spawning Training Actors with vLLM backends --#")
         self.inference_engines = [
             ray.remote(
                 num_cpus=0,
@@ -68,15 +112,20 @@ class VLLMBackend(Backend):
             )
             for strategy in strategies
         ]
-
         if self.NUM_GPUS > 1:
             print("#-- Initializing Ray Collective group for GPU sync --#")
             master_address = get_ip()
             master_port = get_open_port()
-            ray.get([self.inference_engines[i].collective_rpc.remote("init_inter_engine_group", args=(master_address, master_port, i, self.NUM_GPUS)) for i in range(self.NUM_GPUS)])
+            ray.get([
+                self.inference_engines[i].collective_rpc.remote(
+                    "init_inter_engine_group", 
+                    args=(master_address, master_port, i, self.NUM_GPUS)
+                ) 
+                for i in range(self.NUM_GPUS)
+            ])
         else:
             print("#-- Skipping collective group (1 GPU) --#")
-
+        # --- Cleanup handlers ---
         def cleanup():  
             for llm in self.inference_engines:
                 try:
@@ -89,11 +138,9 @@ class VLLMBackend(Backend):
                 except Exception:
                     pass
             ray.shutdown()
-
         def sig_handler(sig, frame):
             cleanup()
             sys.exit(0)
-
         signal.signal(signal.SIGINT, sig_handler)
         signal.signal(signal.SIGTERM, sig_handler)
 

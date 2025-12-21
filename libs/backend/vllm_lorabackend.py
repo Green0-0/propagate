@@ -188,12 +188,52 @@ class VLLMBackendLoRA(Backend):
         #-----------------------------------------------------#
         print(f"#-- Initializing Backend {self.backend_name} --#")
         print(f"#-- GPUS: {self.NUM_GPUS}, CPUS per GPU: {self.CPUS_PER_GPU}, GPU Fraction VLLM Worker: {self.GPU_FRACTION_VLLM_WORKER} --#")
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
 
         print("#-- Spawning Training Actors with vLLM backends --#")
-        
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        ray.init(address="local", include_dashboard=False, ignore_reinit_error=True)
-        pgs = [placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}]) for _ in range(self.NUM_GPUS)]
+        head_ip = os.environ.get("head_node_ip")
+        if head_ip is not None:
+            # === MULTI-NODE MODE ===
+            # Connect to existing Ray cluster started by SLURM script
+            self.multi_node = True
+            ray_address = f"{head_ip}:6379"
+            print(f"#-- Multi-node mode: connecting to Ray cluster at {ray_address} --#")
+            
+            ray.init(
+                address=ray_address,
+                include_dashboard=False, 
+                ignore_reinit_error=True
+            )
+            
+            resources = ray.cluster_resources()
+            print(f"#-- Ray cluster resources: {resources} --#")
+            available_gpus = int(resources.get("GPU", 0))
+            
+            if available_gpus < self.NUM_GPUS:
+                raise RuntimeError(f"Requested {self.NUM_GPUS} GPUs but only {available_gpus} available in cluster")
+            
+            print(f"#-- Creating {self.NUM_GPUS} placement groups with SPREAD strategy --#")
+            pgs = [
+                placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}], strategy="SPREAD") 
+                for _ in range(self.NUM_GPUS)
+            ]
+        else:
+            # === SINGLE-NODE MODE ===
+            # Start local Ray instance
+            self.multi_node = False
+            print("#-- Single-node mode: starting local Ray instance --#")
+            
+            ray.init(
+                address="local", 
+                include_dashboard=False, 
+                ignore_reinit_error=True
+            )
+            
+            print(f"#-- Creating {self.NUM_GPUS} placement groups --#")
+            pgs = [
+                placement_group([{"GPU": 1, "CPU": self.CPUS_PER_GPU}]) 
+                for _ in range(self.NUM_GPUS)
+            ]        
         ray.get([pg.ready() for pg in pgs])
         strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
         

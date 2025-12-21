@@ -33,7 +33,7 @@ def load_datasets(batch_size: int = 50):
         }
     
     #dlr = DynamicLengthReward(words_target=2000, length_penalty_percent=0.1, length_reward_percent=0.3)
-    nlr = NormalizedLengthReward(length_penalty_percent=0.1, length_reward_percent=0.3)
+    nlr = NormalizedLengthReward(length_penalty_percent=0.1, length_reward_percent=0.5)
 
     datasets = {}
     ace_hf = load_dataset("nvidia/AceReason-Math", split="train")
@@ -234,7 +234,7 @@ if __name__ == "__main__":
              gpu_fraction=0.8,
              lora_rank=8,
              ctx_len=8192,
-             batch_size=50,
+             batch_size=100,
              population_size=84,
              total_steps=250,
              learning_rate=6,
