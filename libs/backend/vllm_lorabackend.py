@@ -15,7 +15,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from ray.util.placement_group import placement_group, remove_placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from vllm import LLM, SamplingParams
-from vllm.utils.network_utils import get_ip, get_open_port
 
 from libs.genome import Genome
 
@@ -255,16 +254,8 @@ class VLLMBackendLoRA(Backend):
         ]
 
         if self.NUM_GPUS > 1:
-            print("#-- Initializing Ray Collective group for GPU sync (Broadcast) --#")
-            master_address = get_ip()
-            master_port = get_open_port()
-            ray.get([
-                self.inference_engines[i].collective_rpc.remote(
-                    "init_inter_engine_group", 
-                    args=(master_address, master_port, i, self.NUM_GPUS)
-                ) 
-                for i in range(self.NUM_GPUS)
-            ])
+            print("#-- Initializing Ray Collective group for GPU sync --#")
+            ray.get([llm.collective_rpc.remote("init_collective_group", args=(self.NUM_GPUS, rank,)) for rank, llm in enumerate(self.inference_engines)])
         else:
             print("#-- Skipping collective group (1 GPU) --#")
 
@@ -362,7 +353,7 @@ class VLLMBackendLoRA(Backend):
         """Update the model permanently with a genome as the source."""
         ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer, self.lora_perturb_target, self.norm_scale_update)) for llm in self.inference_engines])
 
-        ray.get([llm.collective_rpc.remote("broadcast_all_lora_weights", args=(0,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
 
         if self.lora_perturb_target == "a-":
             self.lora_perturb_target = "b-"
@@ -462,7 +453,7 @@ class VLLMBackendLoRA(Backend):
                 restore_handles.append(h)
         
         ray.get(restore_handles)
-        ray.get([llm.collective_rpc.remote("broadcast_all_lora_weights", args=(0,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
         #ray.get(llm.collective_rpc.remote("inspect_lora", args=("POST RESTORE INSPECTION", )))
         if self.time_self:
             print(f"#-- All adapters restored in {time.time() - end_time:.2f}s --#")
