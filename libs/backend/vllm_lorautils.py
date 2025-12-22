@@ -4,10 +4,19 @@ import time
 from typing import Dict, List, Tuple
 
 import torch
-from ray.util import collective
+import torch
 
 from libs.genome import Genome
 from libs.optimizers import Optimizer
+
+from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
+from vllm.distributed.utils import StatelessProcessGroup
+
+def _stateless_init_process_group(master_address, master_port, rank, world_size, device):
+    pg = StatelessProcessGroup.create(
+        host=master_address, port=master_port, rank=rank, world_size=world_size
+    )
+    return PyNcclCommunicator(pg, device=device)
 
 class WorkerExtension:
     def self_report_lora_params_sanity_check(self):
@@ -143,21 +152,8 @@ class WorkerExtension:
         output += ("#-- inspect_lora done --#\n")
         print(output)
 
-    def init_collective_group(self, world_size: int, rank: int, backend: str = "nccl"):
-        self.collective_group_name = "weight_sync_group"
-        self.world_size = world_size
-        self.rank = rank
-        
-        if collective.is_group_initialized(self.collective_group_name):
-            collective.destroy_collective_group(self.collective_group_name)
-        
-        collective.init_collective_group(
-            world_size=world_size,
-            rank=rank,
-            backend=backend,
-            group_name=self.collective_group_name,
-        )
-        print(f"#-- Worker {rank} collective group initialized. --#")
+    def init_inter_engine_group(self, master_address: str, master_port: int, rank: int, world_size: int):
+        self.inter_pg = _stateless_init_process_group(master_address, master_port, rank, world_size, self.device)
         return True
 
     def _iter_stacked_lora_tensors(self):
@@ -180,57 +176,31 @@ class WorkerExtension:
                     yield mod_name, i, a_stacked, b_stacked
 
     @torch.inference_mode()
-    def perform_global_average_lora(self):
-        #TODO: FIX BUG INVOLVING AVERAGING MORE ADAPTERS THAN THERE ARE GENOMES (ZERO ADAPTERS)
+    def broadcast_all_lora_weights(self, src_rank: int = 0):
         """
-        Make every adapter slot identical to the global mean across:
-          - all local adapter slots (intra-worker), and
-          - all workers (inter-worker), if a Ray collective group exists.
-
-        This ensures that after calling this, every slot on every rank has the
-        same LoRA weights.
+        Broadcast the first lora on the first gpu to all other loras on the same gpu and different gpus.
         """
-        # Determine if we can do cross-worker reduction.
-        do_collective = (
-            hasattr(self, "collective_group_name")
-            and collective.is_group_initialized(self.collective_group_name)
-        )
-        world_size = getattr(self, "world_size", 1)
-        if world_size is None or world_size < 1:
-            world_size = 1
+        do_collective = hasattr(self, "inter_pg")
 
         for _, _, a_stacked, b_stacked in self._iter_stacked_lora_tensors():
             # a_stacked, b_stacked shapes: [num_slots, ...]
-            num_slots = a_stacked.shape[0]
+            # We treat slot 0 as the source.
 
-            sum_a = a_stacked.sum(dim=0)
-            sum_b = b_stacked.sum(dim=0)
-            cnt = torch.tensor(float(num_slots), device=sum_a.device, dtype=sum_a.dtype)
+            # Step 1: Broadcast slot 0 to all workers' slot 0 (buffer).
+            tensor_a = a_stacked[0]
+            tensor_b = b_stacked[0]
 
-            if do_collective and world_size >= 1:
-                # Sum across ranks
-                collective.allreduce(sum_a, group_name=self.collective_group_name)
-                collective.allreduce(sum_b, group_name=self.collective_group_name)
-                collective.allreduce(cnt, group_name=self.collective_group_name)
+            if do_collective:
+                self.inter_pg.broadcast(tensor_a, src=int(src_rank), stream=torch.cuda.current_stream())
+                self.inter_pg.broadcast(tensor_b, src=int(src_rank), stream=torch.cuda.current_stream())
 
-            mean_a = (sum_a / cnt).to(dtype=a_stacked.dtype)
-            mean_b = (sum_b / cnt).to(dtype=b_stacked.dtype)
-
-            # Broadcast the global mean back into every slot
-            a_stacked[:] = mean_a
-            b_stacked[:] = mean_b
+            # Step 2: Replicate slot 0 to all other slots locally.
+            a_stacked[:] = tensor_a
+            b_stacked[:] = tensor_b
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         return True
-
-    def destroy_collective_group(self):
-        if collective.is_group_initialized(self.collective_group_name):
-            collective.destroy_collective_group(self.collective_group_name)
-        return True
-
-    def __del__(self):
-        self.destroy_collective_group()
 
     def save_weights_to_disk(self, filepath):
         state_dict_to_save = {}
