@@ -460,3 +460,42 @@ class VLLMBackendLoRA(Backend):
 
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
+
+    def inference(self, conversations: List[List[Dict[str, str]]]):
+        """
+        Inference mode: takes a batch of formatted conversations, 
+        applies tokenizer, runs inference using the base LoRA (lora_0), and returns outputs.
+        """
+        prompts = []
+        for c in conversations:
+            p = self.tokenizer.apply_chat_template(c, tokenize=False, add_generation_prompt=True)
+            prompts.append([p])
+            
+        prompt_chunks = np.array_split(prompts, self.NUM_GPUS)
+        
+        handles = []
+        lora_name = "lora_0"
+        lora_path = self.lora_paths.get(lora_name)
+        if not lora_path:
+             lora_name = list(self.lora_paths.keys())[0]
+             lora_path = self.lora_paths[lora_name]
+             
+        for i, engine in enumerate(self.inference_engines):
+            chunk = prompt_chunks[i]
+            if len(chunk) == 0:
+                continue
+            
+            lora_specs = [{"name": lora_name, "id": 1, "path": lora_path} for _ in chunk]
+            chunk_list = chunk.tolist()
+            
+            h = engine.generate_multi_lora.remote(chunk_list, self.sampler, lora_specs, self.use_tqdm)
+            handles.append(h)
+            
+        results_list = ray.get(handles)
+        
+        final_outputs = []
+        for eng_results in results_list:
+            for genome_res in eng_results:
+                final_outputs.append(genome_res[0])
+                
+        return final_outputs

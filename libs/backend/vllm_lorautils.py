@@ -233,10 +233,42 @@ class WorkerExtension:
         self.destroy_collective_group()
 
     def save_weights_to_disk(self, filepath):
+        lora_manager = self.model_runner.lora_manager
+        adapter_manager = lora_manager._adapter_manager
+        adapters_dict = adapter_manager.list_adapters()
+
+        if not adapters_dict:
+            return False
+
+        aid, _ = sorted(adapters_dict.items(), key=lambda x: x[0])[0]
+
+        weights = self._collect_gpu_lora_tensors(aid)
         state_dict_to_save = {}
-        for name, p in self.model_runner.model.named_parameters():
-            state_dict_to_save[name] = p.detach().cpu()
+        for name, (lora_a, lora_b) in weights.items():
+            state_dict_to_save[name] = (lora_a.detach().cpu(), lora_b.detach().cpu())
+
         torch.save(state_dict_to_save, filepath)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        time.sleep(0.1)
+        return True
+
+    def load_weights_from_disk(self, filepath):
+        state_dict = torch.load(filepath, map_location='cpu')
+        
+        lora_manager = self.model_runner.lora_manager
+        adapter_manager = lora_manager._adapter_manager
+        adapters_dict = adapter_manager.list_adapters()
+
+        for aid, _ in adapters_dict.items():
+            gpu_weights = self._collect_gpu_lora_tensors(aid)
+            for name, (saved_a, saved_b) in state_dict.items():
+                if name in gpu_weights:
+                    current_a, current_b = gpu_weights[name]
+                    current_a.data.copy_(saved_a.to(current_a.device))
+                    current_b.data.copy_(saved_b.to(current_b.device))
+        
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

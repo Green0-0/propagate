@@ -7,6 +7,7 @@ import sys
 import os
 import ray
 import time 
+import math
 from transformers import AutoTokenizer
 from ray.util.placement_group import placement_group, remove_placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
@@ -204,3 +205,32 @@ class VLLMBackend(Backend):
             
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
+
+    def load_weights_from_disk(self, filepath: str):
+        ray.get([llm.collective_rpc.remote("load_weights_from_disk", args=(filepath,)) for llm in self.inference_engines])
+
+    def inference(self, conversations: List[List[Dict[str, str]]]):
+        """
+        Inference mode: takes a batch of formatted conversations, 
+        applies tokenizer, runs inference, and returns the outputs.
+        """
+        prompts = [self.tokenizer.apply_chat_template(c, tokenize=False, add_generation_prompt=True) for c in conversations]
+        
+        num_engines = len(self.inference_engines)
+        chunk_size = math.ceil(len(prompts) / num_engines)
+        
+        handles = []
+        for i, engine in enumerate(self.inference_engines):
+            chunk = prompts[i * chunk_size : (i + 1) * chunk_size]
+            if chunk:
+                h = engine.generate.remote(chunk, self.sampler, use_tqdm=False)
+                handles.append(h)
+        
+        results_list = ray.get(handles)
+        
+        final_outputs = []
+        for eng_results in results_list:
+            for req_out in eng_results:
+                final_outputs.append(req_out.outputs[0].text)
+                
+        return final_outputs

@@ -221,7 +221,11 @@ class MomentumOpt(Optimizer):
                 self.rep_genome.historical_rewards.append(float('-inf'))
             accumulated_coefficient *= self.momentum
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
-        self.update_history.append(copy.deepcopy(self.rep_genome))
+        self.update_history.append({
+            "genome": copy.deepcopy(self.rep_genome),
+            "velocity_seeds_steps": copy.deepcopy(self.velocity_seeds_steps),
+            "last_lr": self.last_lr
+        })
 
     def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
         gen = torch.Generator(device=tensor.device)
@@ -235,12 +239,23 @@ class MomentumOpt(Optimizer):
     def get_representative(self) -> Genome:
         return self.rep_genome
     
-    def get_update_history(self) -> List[List[Genome]]:
-        return self.update_history
+    def get_update_history(self) -> Any:
+        return {"update_history": self.update_history}
     
     def restore_from_history(self, history, backend):
-        for step_genome in history:
-            self.rep_genome = step_genome
+        if isinstance(history, dict):
+            update_history = history.get("update_history", [])
+        else:
+            update_history = history
+
+        for item in update_history:
+            if isinstance(item, dict) and "genome" in item:
+                 self.rep_genome = item["genome"]
+                 self.velocity_seeds_steps = item.get("velocity_seeds_steps", [])
+                 self.last_lr = item.get("last_lr", 0)
+            else:
+                 self.rep_genome = item
+            
             backend.update(self)
         self.rep_genome = Genome()
 

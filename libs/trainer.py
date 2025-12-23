@@ -229,6 +229,8 @@ class SimpleTrainer:
             
             if isinstance(history, list):
                  self.iteration_count = len(history)
+            elif isinstance(history, dict) and "update_history" in history:
+                 self.iteration_count = len(history["update_history"])
             
             print(f"#-- Successfully loaded model seeds from {filepath}. Resuming from iteration {self.iteration_count} --#")
         except Exception as e:
