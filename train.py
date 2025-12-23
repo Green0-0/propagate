@@ -209,6 +209,7 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
         elif optimizer_name == "adam":
             optimizer = AdamOpt(total_steps=total_steps, learning_rate=learning_rate, perturb_scale=perturb_scale, norm_by_mean=False, norm_by_stddev=False, force_lora_alternating=alt_lora, momentum=momentum, beta2=beta2)
 
+        model_slug = model_source.replace("/", "_")
         trainer = SimpleTrainer(population_size=population_size,
                                 mirror=True,
                                 optimizer=optimizer,
@@ -217,11 +218,13 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
                                 wandb_project=wandb_project,
                                 validate_every=10,
                                 print_samples=True,
+                                checkpoint_every=50,
+                                checkpoint_path=f"checkpoints/{model_slug}.json"
         )
         
         trainer.train()
 
-        trainer.save_model_seeds("saved_model/saved_model_seeds.json")
+        trainer.backend.save_weights_to_disk(f"saved_model/{model_slug}.pt")
         
         print("#-- Training complete --#")
 

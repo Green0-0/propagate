@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Any, List
 from libs.backend.backend_abc import Backend
 from libs.datasets.dataset import Dataset
@@ -21,7 +22,7 @@ class SimpleTrainer:
 
     wandb_project: str
 
-    def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False):
+    def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
         print(f"#-- Population Size: {population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.perturb_scale} --#")
         self.optimizer = optimizer
@@ -48,6 +49,8 @@ class SimpleTrainer:
         self.wandb_project = wandb_project
         self.validate_every = validate_every
         self.print_samples = print_samples
+        self.checkpoint_every = checkpoint_every
+        self.checkpoint_path = checkpoint_path
 
         if self.wandb_project is not None and self.wandb_project != "":
             try:
@@ -78,6 +81,7 @@ class SimpleTrainer:
                     "cpus_per_gpu": backend.CPUS_PER_GPU,
                     "gpu_fraction_worker": backend.GPU_FRACTION_VLLM_WORKER,
                     "max_ctx_len": backend.max_model_len,
+                    "checkpoint_every": checkpoint_every,
                 }
                 wandb.init(project=self.wandb_project, config=config)
                 wandb.define_metric("iteration_count")
@@ -178,6 +182,12 @@ class SimpleTrainer:
                 end_time = time.time()
                 print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
                 self.log_val_stats(new_genome, end_time - start_time)
+            
+            if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:
+                 base, ext = os.path.splitext(self.checkpoint_path)
+                 path = f"{base}_step_{self.iteration_count}{ext}"
+                 os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+                 self.save_model_seeds(path)
             
             self.genomes = [Genome() for _ in range(self.population_size)]
             for genome in self.genomes:

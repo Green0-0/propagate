@@ -30,11 +30,13 @@ try:
                             wandb_project="propagate_optimizers",
                             validate_every=10,
                             print_samples=True,
+                            checkpoint_every=50,
+                            checkpoint_path="checkpoints/Qwen_Qwen2_5-3B-Instruct.json"
     )
     
     trainer.train()
 
-    trainer.save_model_seeds("saved_model/saved_model_seeds.json")
+    trainer.backend.save_weights_to_disk("saved_model/Qwen_Qwen2_5-3B-Instruct.pt")
     
     print("#-- Training complete --#")
 
