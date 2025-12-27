@@ -461,6 +461,9 @@ class VLLMBackendLoRA(Backend):
     def save_weights_to_disk(self, filepath: str):
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
 
+    def load_weights_from_disk(self, filepath: str):
+        ray.get([llm.collective_rpc.remote("load_weights_from_disk", args=(filepath,)) for llm in self.inference_engines])
+
     def inference(self, conversations: List[List[Dict[str, str]]]):
         """
         Inference mode: takes a batch of formatted conversations, 
