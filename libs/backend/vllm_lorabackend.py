@@ -464,7 +464,7 @@ class VLLMBackendLoRA(Backend):
     def load_weights_from_disk(self, filepath: str):
         ray.get([llm.collective_rpc.remote("load_weights_from_disk", args=(filepath,)) for llm in self.inference_engines])
 
-    def inference(self, conversations: List[List[Dict[str, str]]]):
+    def inference(self, conversations: List[List[Dict[str, str]]], suffix: str = None):
         """
         Inference mode: takes a batch of formatted conversations, 
         applies tokenizer, runs inference using the base LoRA (lora_0), and returns outputs.
@@ -472,6 +472,8 @@ class VLLMBackendLoRA(Backend):
         prompts = []
         for c in conversations:
             p = self.tokenizer.apply_chat_template(c, tokenize=False, add_generation_prompt=True)
+            if suffix:
+                p += suffix
             prompts.append([p])
             
         prompt_chunks = np.array_split(prompts, self.NUM_GPUS)

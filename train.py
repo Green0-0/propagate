@@ -195,7 +195,7 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
         
         if lora:
             alt_lora = True
-            backend = VLLMBackendLoRA(model_name=model_source, lora_model_source=lora_model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, Sampler=sampler, lora_rank=lora_rank, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True)
+            backend = VLLMBackendLoRA(model_name=model_source, lora_model_source=lora_model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, Sampler=sampler, lora_rank=lora_rank, use_tqdm=False, time_self=True, lora_perturb_target="b-", norm_scale_update=True, max_model_len=ctx_len)
         else:
             alt_lora = False
             backend = VLLMBackend(model_name=model_source, NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=gpu_fraction, sampler=sampler, use_tqdm=False, time_self=True)

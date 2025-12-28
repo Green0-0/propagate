@@ -1,4 +1,5 @@
 import os
+import re
 import argparse
 import pandas as pd
 from datasets import load_dataset, Dataset
@@ -18,7 +19,7 @@ def eval_aime():
     parser.add_argument("--checkpoint", type=str, default="saved_model/G-reen_SmolLM3-3B-SFT.pt", help="Path to the LoRA checkpoint .pt file")
     parser.add_argument("--base_model", type=str, default="G-reen/SmolLM3-3B-SFT", help="Base model name")
     parser.add_argument("--dataset_name", type=str, default="MathArena/aime_2025", help="Dataset to evaluate")
-    parser.add_argument("--upload_dataset", type=str, default="MathArena/aime_2025_results_smollm", help="Dataset to upload results to")
+    parser.add_argument("--upload_dataset", type=str, default="G-reen/aime_2025_results_smollm", help="Dataset to upload results to")
     parser.add_argument("--lora_rank", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=50)
     args = parser.parse_args()
@@ -32,6 +33,7 @@ def eval_aime():
 
     # Initialize Backend
     # Note: Using temp 0 for pass@1
+    # MATCH TRAIN.PY: Increased max_tokens to 8192 to match training context
     sampler = SamplingParams(temperature=0.0, max_tokens=8192) 
     
     # We use VLLMBackendLoRA as requested
@@ -42,7 +44,11 @@ def eval_aime():
         GPU_FRACTION_VLLM_WORKER=0.8,
         Sampler=sampler,
         lora_rank=args.lora_rank,
-        use_tqdm=True
+        use_tqdm=True,
+        max_model_len=8192,
+        # MATCH TRAIN.PY: Explicitly matching training backend config
+        lora_perturb_target="b-",
+        norm_scale_update=True
     )
 
     try:
@@ -59,10 +65,14 @@ def eval_aime():
         results = []
         
         # Prepare all inputs first to batch
+        # MATCH TRAIN.PY: Use the same prompt template as libs/datasets/hf_datasets_loader.py
+        prompt_template = "{prompt}\nShow your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>"
+        
         all_conversations = []
         for row in dataset:
-            # Simple user prompt
-            all_conversations.append([{"role": "user", "content": row['problem']}])
+            # Apply training prompt template
+            content = prompt_template.format(prompt=row['problem'])
+            all_conversations.append([{"role": "user", "content": content}])
 
         print(f"Running inference on {len(all_conversations)} items...")
         
@@ -70,7 +80,7 @@ def eval_aime():
         
         for i in range(0, len(all_conversations), args.batch_size):
             batch = all_conversations[i:i+args.batch_size]
-            outputs = backend.inference(batch)
+            outputs = backend.inference(batch, suffix="<think>")
             all_outputs.extend(outputs)
             print(f"Processed {len(all_outputs)}/{len(all_conversations)}")
 
@@ -86,8 +96,17 @@ def eval_aime():
             # Ensure source_answer is string for parsing
             gold_parsed = parse(str(source_answer))
             
+            # Match training reward logic: strictly extract from <answer> tags
+            answer_pattern = r"<answer>(.*?)<\/answer>"
+            matches = re.findall(answer_pattern, model_response, re.DOTALL)
+            if matches:
+                text_to_parse = matches[-1]
+            else:
+                # If no tags, we treat it as a format failure and parse nothing (fail)
+                text_to_parse = ""
+            
             # Pred Parse
-            pred_parsed = parse(model_response)
+            pred_parsed = parse(text_to_parse)
             
             # Verify
             is_correct = verify(gold_parsed, pred_parsed)

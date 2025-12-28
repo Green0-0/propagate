@@ -50,6 +50,7 @@ class Dataset:
         self.postprocess_reward = postprocess_reward
 
         self.pairs_train = []
+        self.pairs_test = []
         for pair in dataset_pairs:
             self.pairs_train.append((pair[dataset_input_key], answer_reward.build_reward_function(pair), format_reward.build_reward_function(pair)))
 
