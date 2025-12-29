@@ -46,7 +46,6 @@ def load_datasets(batch_size: int = 50):
         hf_data=ace_hf,
         answer_reward=MathVerifyRewardGenerator(target_answer_key="answer"),
         input_column="problem",
-        target_column="answer",
         force_reuse_batches=False,
         post_process_reward=nlr,
     )
@@ -68,7 +67,6 @@ def load_datasets(batch_size: int = 50):
             lowercase=False
         ),
         input_column="formatted_question",
-        target_column="letter_answer",
         post_process_reward=nlr
     )
 
@@ -82,7 +80,6 @@ def load_datasets(batch_size: int = 50):
         hf_data=mega_hf,
         answer_reward=MathVerifyRewardGenerator(target_answer_key="reference_answer"),
         input_column="question",
-        target_column="reference_answer",
         post_process_reward=nlr
     )
 
@@ -112,7 +109,6 @@ def load_datasets(batch_size: int = 50):
             target_type=int
         ),
         input_column="question",
-        target_column="clean_answer",
         post_process_reward=nlr
     )
 
@@ -145,7 +141,6 @@ def load_datasets(batch_size: int = 50):
         hf_data=countdown_hf,
         answer_reward=AnswerRewardGenerator(numbers_key="nums", target_key="target"),
         input_column="prompt",
-        target_column="target",
         post_process_reward=nlr
     )
 

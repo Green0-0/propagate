@@ -10,7 +10,6 @@ class Dataset:
 
     The dataset can either yield a different batch for each genome in the population, or yield the same batch for all genomes. It will always yield the same batch for a mirrored pair.
 
-    Support exists for generalized pass@k. 
     Generalized pass@k with reward shaping works as follows:
     For each genome, we create 'passk' outputs for each question.
     For each genome where the answer reward exceeds 'passk_minimum', we consider this as correct.
@@ -116,7 +115,7 @@ class Dataset:
         return batch
     
     def next(self, population_size: int, mirror: bool) -> List[List[List[Dict[str, str]]]]:
-        """Return a separate batch for each member of the population.
+        """Return a separate batch for each member of the population. Saves the yielded batch internally for reuse in eval.
 
         Args:
             population_size (int): The size of the population.
@@ -140,13 +139,12 @@ class Dataset:
                 self.last_batch.append((list(dict_lists), list(answer_funcs), list(reward_funcs)))
                 all_inputs.append(list(dict_lists))
         if mirror:
-            # Double the number of batches because the effective population size is doubled, ie. [Genome List | Mirror Genome List] so we need [Batch List | Batch List]
             all_inputs = all_inputs * 2
             self.last_batch = self.last_batch * 2
         return all_inputs
 
     def get_test_set(self) -> List[List[List[Dict[str, str]]]]:
-        """Return the entire test set.
+        """Return the entire test set. Saves the yielded batch internally for reuse in eval.
 
         Returns:
             List[List[List[Dict[str, str]]]]: A list containing the test set batches.
@@ -162,7 +160,11 @@ class Dataset:
         return [list(dict_lists)]
     
     def score_all(self, genomes: List[Genome]):
-        """Compute the scores of all genomes based on the last batch. Update each genome's reward history, and the set of its latest rewards.
+        """Compute the scores of all genomes based on the last batch using the saved batch. Update each genome's reward history, and the set of its latest rewards.
+
+        First, computes generic answer/format rewards for each genome individually. Applies pass@k adjustment if enabled and is during training step.
+
+        Then, applies postprocessing if enabled for training steps. After applying postprocess, finalizes the rewards by summing the answer and format rewards. For testing steps, only the answer reward is considered with no postprocessing.
 
         Args:
             genomes (List[Genome]): The list of genomes to score.
@@ -170,15 +172,14 @@ class Dataset:
         Raises:
             ValueError: If no last batch is available or if genome outputs do not match the batch size.
         """
-        if not self.last_batch or len(self.last_batch) == 0:
-            raise ValueError("No last batch available. Score should be done on a batch after outputs are generated.")
+        assert (self.last_batch is not None and len(self.last_batch) > 0), "No last batch available. Score should be done on a batch after outputs are generated."
         all_rewards = []
         for i, genome in enumerate(genomes):
-            if not genome.latest_outputs:
-                raise ValueError("Genome does not have outputs for the last batch.")
-            if len(genome.latest_outputs) != len(self.last_batch[i][0]):
-                raise ValueError("Genome outputs do not match the last batch size.")
+            assert genome.latest_outputs is not None, "Genome does not have outputs for the last batch."
+            assert len(genome.latest_outputs) == len(self.last_batch[i][0]), "Genome outputs do not match the last batch size."
+            # Get the relevant reward functions for this batch of data
             _, answer_funcs, format_funcs = self.last_batch[i]
+            # Compute the rewards for each output
             latest_rewards = [
                 (answer_func(output), format_func(output))
                 for output, answer_func, format_func in zip(genome.latest_outputs, answer_funcs, format_funcs)
@@ -200,12 +201,15 @@ class Dataset:
             else:
                 adjusted_rewards = latest_rewards
             all_rewards.append(adjusted_rewards)
+        
         if self.last_batch_is_train:
+            # Apply reward postprocessing if enabled 
             for i, genome in enumerate(genomes):
                 adjusted_rewards = all_rewards[i]
                 genome.latest_rewards = [ans_reward for ans_reward, fmt_reward in adjusted_rewards]
             if self.postprocess_reward is not None:
                 self.postprocess_reward.post_process_rewards(genomes)
+            # Finalize the rewards by doing a weighted sum of the answer and format rewards
             for i, genome in enumerate(genomes):
                 adjusted_rewards = all_rewards[i]
                 genome.latest_rewards = [
@@ -213,12 +217,14 @@ class Dataset:
                         for j, (_, fmt_reward) in enumerate(adjusted_rewards)
                     ]
         else:
+            # For testing steps, only the answer reward is considered with no postprocessing
             for i, genome in enumerate(genomes):
                 adjusted_rewards = all_rewards[i]
                 genome.latest_rewards = [
                     ans_reward
                     for ans_reward, fmt_reward in adjusted_rewards
                 ]
+        # Update the historical rewards for each genome
         for genome in genomes:
             mean_reward = sum(genome.latest_rewards) / len(genome.latest_rewards)
             genome.historical_rewards.append(mean_reward)
@@ -242,6 +248,7 @@ class Dataset:
         self.pairs_test = pairs_test
 
 def _copy_dataset_config(source: Dataset) -> Dataset:
+    """Create a new dataset with the config copied from the source dataset."""
     new_dataset = Dataset.__new__(Dataset)
     new_dataset.batch_size = source.batch_size
     new_dataset.suffix = source.suffix

@@ -5,17 +5,50 @@ from typing import Callable, Dict, List, Optional, Union
 import re
 
 class RewardGenerator(ABC):
-    """To seamlessly support combining datasets, reward classes serve as builders for reward functions. Each class builds an individual reward function based on a single row of data, which can be shuffled together and stacked to form a varied dataset."""
+    """Abstract base class for reward generators.
+
+    Reward classes in this framework serve as factories for reward functions.
+    Because each data sample has a unique answer, a specific reward function must be built for each individual row of data.
+    
+    This enables:
+    1. Combining diverse datasets (e.g., math, code, reasoning) into a single training run.
+    2. Shuffling data without losing the verification logic for each item.
+    """
     @abstractmethod
     def build_reward_function(self, input: Dict) -> Callable[[str], float]:
-        """Builds a reward function for the given row of data."""
+        """Builds a custom reward function for a specific data sample.
+
+        Args:
+            input (Dict): A single row of data from the dataset, containing the
+                problem statement, ground truth answer, and other metadata.
+
+        Returns:
+            Callable[[str], float]: A function that takes a model's generated response (str)
+            and returns a float reward. For consistency and interpretability, please keep the range of rewards between 0.0 and 1.0.
+        """
         pass
 
 class FormatRewardGenerator(RewardGenerator):
-    """Reward function for formatting rewards.
-    Checks if the response follows the following format: {start_think_token}...{end_think_token}...{start_answer_token}...{end_answer_token}.
-    With only exactly one of each token, and nothing after the {end_answer_token}.
-    If any of the tokens are passed as none in init, ignore them when checking.
+    """A reward generator that evaluates adherence to a specific output structure.
+
+    This generator checks if the model's response follows a strict template, typically:
+    `{start_think_token}...{end_think_token}...{start_answer_token}...{end_answer_token}`.
+    
+    It verifies:
+    1. The presence of start/end tokens.
+    2. The correct order of tokens.
+    3. That tokens appear exactly once (if required).
+    4. That no content trails the final answer token.
+    
+    Partial credit is awarded for meeting individual criteria.
+    Not all the tokens may be required, only the ones specified by the user are.
+
+    Attributes
+    ----------
+        start_think_token (str): The token marking the start of the thinking block.
+        end_think_token (str): The token marking the end of the thinking block.
+        start_answer_token (str): The token marking the start of the final answer.
+        end_answer_token (str): The token marking the end of the final answer.
     """
     def __init__(self, start_think_token: str = "", end_think_token: str = "", start_answer_token: str = "", end_answer_token: str = ""):
         self.start_think_token = start_think_token
@@ -52,9 +85,20 @@ class FormatRewardGenerator(RewardGenerator):
         return reward_function
 
 class RegexRewardGenerator(RewardGenerator):
-    """Basic equality reward function with regex.
-    Checks if the response contains the target string within the last instance of the wrapper regex.
-    For example, <answer>hello</answer> would match the string "hello" within an <answer>(.*?)</answer> regex.
+    """A reward generator that checks for exact string matches using regular expressions.
+
+    This generator is useful for tasks where the answer is a specific string (e.g., a multiple-choice letter,
+    a short phrase) that must appear within a specific context.
+
+    It typically extracts a substring using `wrapper_regex` (e.g., content inside `<answer>...</answer>` tags)
+    and compares it to the ground truth.
+
+    Attributes
+    ----------
+        target_key (str): The key in the input dictionary that contains the ground truth string.
+        wrapper_regex (str, optional): A regex pattern to extract the potential answer from the model's response.
+            Defaults to extracting content within <answer> tags.
+        lowercase (bool, optional): Whether to perform case-insensitive matching. Defaults to True.
     """
     def __init__(self, target_key: str, wrapper_regex: str = r"<answer>(.*?)<\/answer>", lowercase: bool = True):
         self.wrapper_regex = wrapper_regex
@@ -90,8 +134,20 @@ class RegexRewardGenerator(RewardGenerator):
         return reward_function
     
 class LastMatchRewardGenerator(RewardGenerator):
-    """
-    Reward function that extracts the last value which fits the given datatype and checks if it is equal to the target. Useful if you want the last number which usually corresponds to the answer in a COT reasoning trace.
+    """A reward generator that extracts numerical answers from a reasoning trace.
+
+    This generator scans the model's response for the *last* occurrence of a number (int or float)
+    and compares it to the ground truth. This is a common heuristic for Chain-of-Thought (CoT)
+    evaluations where the final answer is stated at the end.
+    
+    It supports:
+    - Integer verification.
+    - Float verification (within a small tolerance).
+
+    Attributes
+    ----------
+        target_key (str): The key in the input dictionary containing the ground truth number.
+        target_type (type): The expected type of the answer (int or float).
     """
     def __init__(self, target_key: str, target_type: type):
         self.target_key = target_key
@@ -129,10 +185,23 @@ class LastMatchRewardGenerator(RewardGenerator):
         return reward_function
 
 class MathVerifyRewardGenerator(RewardGenerator):
-    """
-    Reward generator that uses the math-verify library to parse and verify mathematical answers.
+    """A robust reward generator for mathematical reasoning using the `math-verify` library.
+
+    This generator is designed to handle complex mathematical expressions, LaTeX formatting,
+    and equivalence checking (e.g., knowing that "1/2" is equal to "0.5").
+
+    It performs a two-step process:
+    1. Extraction: optionally isolates the answer using `wrapper_regex`.
+    2. Verification: parses both the ground truth and the extracted prediction into symbolic
+       representations to check for semantic equivalence.
     
-    It supports pre-filtering with a wrapper regex (e.g., to look only inside <answer> tags) and specifying the extraction settings. See the math-verify documentation for more details.
+    Attributes
+    ----------
+        target_answer_key (str): The key in the input dictionary containing the ground truth LaTeX or math string.
+        extraction_config (Optional[List[LatexExtractionConfig]], optional): Configuration for `math-verify` to control
+            how expressions are parsed and normalized. Defaults to a standard configuration if None.
+        wrapper_regex (Optional[str], optional): Regex to limit the search space for the answer (e.g., inside tags).
+            Defaults to r"<answer>(.*?)<\/answer>".
     """
     def __init__(
         self, 
@@ -199,8 +268,24 @@ class MathVerifyRewardGenerator(RewardGenerator):
         return reward_function
 
 class LastChoiceRewardGenerator(RewardGenerator):
-    """
-    Reward function that checks if the last answer correlation to a possible choice in the response matches the target answer. Meant for multiple choice datasets like MMLU.
+    """A reward generator specifically for multiple-choice questions (e.g., MMLU).
+
+    This generator identifies which choice key (e.g., A, B, C, D) appears last in the model's
+    extracted response and compares it to the correct choice.
+
+    It handles:
+    - Fixed choices (passed as a list).
+    - Dynamic choices (retrieved from the input dictionary via a key).
+    - Case-insensitive matching.
+
+    Attributes
+    ----------
+        choices (Union[List[str], str]): Either a list of valid choice strings (e.g., ["A", "B", "C", "D"])
+            or a key string to look up the choices in the input dictionary.
+        target_answer_key (str): The key in the input dictionary containing the correct choice.
+        lowercase (bool, optional): Whether to perform case-insensitive matching. Defaults to True.
+        wrapper_regex (Optional[str], optional): Regex to limit the search space for the answer (e.g., inside tags).
+            Defaults to r"<answer>(.*?)<\/answer>".
     """
     def __init__(
         self, 

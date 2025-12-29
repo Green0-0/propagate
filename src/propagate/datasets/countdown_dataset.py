@@ -5,9 +5,19 @@ from typing import Callable, List
 from propagate.datasets.dataset import Dataset
 
 class AnswerRewardGenerator(RewardGenerator):
-    """
-    Reward function that checks if the final answer in the response matches the target answer,
-    and whether only the provided numbers are used in the calculation.
+    """A reward generator for the Countdown task.
+
+    This generator verifies three conditions:
+    1. The model's output contains a valid mathematical expression inside `<answer>...</answer>` tags.
+    2. The expression uses EXACTLY the numbers provided in the input (and no others).
+    3. The expression evaluates to the target number.
+
+    Attributes
+    ----------
+    numbers_key : str
+        The key in the input dictionary containing the list of available numbers.
+    target_key : str
+        The key in the input dictionary containing the target result.
     """
     def __init__(self, numbers_key: str, target_key: str):
         self.numbers_key = numbers_key
@@ -41,7 +51,11 @@ class AnswerRewardGenerator(RewardGenerator):
         return reward_function
 
 def load_countdown_dataset(batch_size: int = 50, reward_func_ratio: float = 0.1, passk: int = 1, passk_proportion: float = 0.1, passk_minimum: float = 0.9, force_reuse_batches: bool = False) -> Dataset:
-    json_path = "propagate/datasets/dataset_files/countdown.json"
+    """Loads the countdown dataset from the official ES repo at https://github.com/VsonicV/es-fine-tuning-paper.
+    The dataset is pre-downloaded and ships with this repo for testing.
+    Slight prompt modifications and are applied for a more consistent format. 
+    Note that this diverges from the original paper (along with several other changes), but none of them should matter."""
+    json_path = "propagate/src/propagate/datasets/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
         data = json.load(f)
@@ -57,7 +71,7 @@ def load_countdown_dataset(batch_size: int = 50, reward_func_ratio: float = 0.1,
         sharegpt_format = [
             {
                 "role": "user",
-                "content": context
+                "content": ncontext
             }
         ]
 

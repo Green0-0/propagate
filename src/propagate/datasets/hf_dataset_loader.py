@@ -5,10 +5,9 @@ from propagate.datasets.postprocessreward import PostProcessReward
 
 def load_hf_dataset(
     hf_data,
-    answer_reward: RewardGenerator,
     input_column: str,
-    target_column: str,
-    format_reward: Optional[RewardGenerator] = None,
+    answer_reward: RewardGenerator,
+    format_reward: RewardGenerator = None,
     prompt_template: str = "{{prompt}}\nShow your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> (1 + 2) / 3 </answer>",
     suffix: str = "<think>",
     batch_size: int = 50,
@@ -20,17 +19,16 @@ def load_hf_dataset(
     post_process_reward: PostProcessReward = None
 ) -> Dataset:
     """
-    A generalized loader for Hugging Face datasets that prepares data for RL training.
+    A generalized loader for Hugging Face datasets that prepares data for RL training. 
+    Requires the prompt to be a singular question; you may need to do seperate formatting with the datasets library.
     
     Args:
         hf_data: The pre-loaded Hugging Face dataset object.
-        answer_reward: The specific reward generator for checking answer correctness.
         input_column: The column name in the HF dataset containing the user prompt/question.
-        target_column: The column name containing the ground truth answer (used by reward gen).
+        answer_reward: The specific reward generator for checking answer correctness.
         format_reward: Custom format reward generator. Defaults to the standard <think>/<answer> format.
         prompt_template: String containing '{{prompt}}' where the input text should be injected.
-        suffix: The string suffix to append to inputs (default: "<think>").
-        batch_size, reward_func_ratio, etc.: Standard arguments passed to the Dataset class.
+        suffix, batch_size, reward_func_ratio, etc.: Standard arguments passed to the Dataset class.
     """
     
     print(f"Building HF dataset from {hf_data}...")

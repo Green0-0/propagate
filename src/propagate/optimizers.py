@@ -100,10 +100,6 @@ class SimpleOpt(Optimizer):
 
     def update_self(self, genomes: List[Genome], current_step: int):
         """Updates the optimizer's internal state based on the provided genomes (assumed to have rewards calculated) and current step. Begins by calculating the population mean and standard deviation from the rewards, which is used to create the update scale with the lr. Then, builds a representative genome (which represents the new state of the model) by iterating through the current genomes seeds. If a seed is part of a previous gradient step, it is copied over (duplicates should be averaged), otherwise it is considered a direction of the gradient and scaled by the reward."""
-        assert len(genomes[0].latest_inputs) > 0, "Genomes has no prompts to score! Did you forget to generate data and evaluate first?"
-        assert len(genomes[0].latest_outputs) > 0, "Genomes has no outputs to score! Did you forget to generate data and evaluate first?"
-        assert len(genomes[0].latest_rewards) > 0, "Genomes has no rewards to score! Did you forget to generate data and evaluate first?"
-
         self.rep_genome = Genome()
         lr = self.get_lr(current_step)
         
@@ -123,6 +119,10 @@ class SimpleOpt(Optimizer):
         old_seeds_count = {}
         
         for g in genomes:
+            assert len(g.latest_inputs) > 0, "Genomes has no prompts for gradient calculation! Did you forget to generate data and evaluate first?"
+            assert len(g.latest_outputs) > 0, "Genomes has no outputs for gradient calculation! Did you forget to generate data and evaluate first?"
+            assert len(g.latest_rewards) > 0, "Genomes has no rewards for gradient calculation! Did you forget to generate data and evaluate first?"
+
             # Calculate the weighting of the gradient for that genome (high reward means more influence)
             grad_scale = g.historical_rewards[-1] * update_scale
             if self.norm_by_mean:
@@ -225,6 +225,10 @@ class MomentumOpt(Optimizer):
         old_seeds_count = {}
         
         for g in genomes:
+            assert len(g.latest_inputs) > 0, "Genomes has no prompts for gradient calculation! Did you forget to generate data and evaluate first?"
+            assert len(g.latest_outputs) > 0, "Genomes has no outputs for gradient calculation! Did you forget to generate data and evaluate first?"
+            assert len(g.latest_rewards) > 0, "Genomes has no rewards for gradient calculation! Did you forget to generate data and evaluate first?"
+            
             grad_scale = g.historical_rewards[-1] * update_scale
             if self.norm_by_mean:
                 grad_scale -= reward_mean * update_scale
