@@ -4,9 +4,9 @@ from transformers import AutoTokenizer
 import re
 import requests
 
-from libs.datasets.postprocessreward import PostProcessReward
-from libs.datasets.reward import RewardGenerator
-from libs.genome import Genome
+from propagate.datasets.postprocessreward import PostProcessReward
+from propagate.datasets.reward import RewardGenerator
+from propagate.genome import Genome
 
 class RLHFFillerReward(RewardGenerator):
     """

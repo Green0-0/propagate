@@ -1,8 +1,8 @@
-from libs.backend.vllm_backend import VLLMBackend
-from libs.datasets.countdown_dataset import load_countdown_dataset
-from libs.genome import Genome
-from libs.trainer import SimpleTrainer
-from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt
+from propagate.backend.vllm_backend import VLLMBackend
+from propagate.datasets.countdown_dataset import load_countdown_dataset
+from propagate.genome import Genome
+from propagate.trainer import SimpleTrainer
+from propagate.optimizers import SimpleOpt, MomentumOpt, MuonOpt
 from vllm import SamplingParams
 
 import gc

@@ -1,15 +1,37 @@
 from abc import ABC, abstractmethod
 import copy
 from typing import Any, List, Dict, Tuple
-from collections import OrderedDict
 
 import torch
 
-from libs.genome import Genome
+from propagate.genome import Genome
 
 import math
 
 class Optimizer(ABC):
+    """Optimizers are responsible for maintaining the learning rate, perturb scale, and other parameters necessary for updating the model. They also contain the behavior to calculate the gradient using stored genome statistics (update_self) and apply it from the backend (step_update). Some optimizers may function without appying the gradient to the backend, simply by maintaining a representative genome (get_representative). Basic behavior for saving the model and restoring it from a checkpoint is also provided (get_update_history and restore_from_history).
+
+    Attributes
+    ----------
+    optimizer_name : str
+        The name of the optimizer.
+    total_steps : int
+        The total number of steps to train for.
+    learning_rate : float
+        The learning rate of the optimizer.
+    perturb_scale : float
+        The scale of the perturbation (sigma).
+    warmup_steps : int
+        The number of warmup steps.
+    scheduler : str
+        The learning rate scheduler to use.
+    norm_by_mean : bool
+        Whether to normalize the gradient by the mean reward. This is required for non-mirrored training.
+    norm_by_stddev : bool
+        Whether to normalize the gradient by the standard deviation of the reward.
+    force_lora_alternating : bool
+        Whether to force the use of alternating LoRA updates. This is required if you are training LoRA on an alternating schedule (train b then a, and repeat) with momentum-based optimizers.
+    """
     def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
         self.optimizer_name = optimizer_name
         self.total_steps = total_steps
@@ -30,22 +52,27 @@ class Optimizer(ABC):
 
     @abstractmethod
     def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
-        """Performs a step update on the provided tensor."""
+        """Performs a weight update on the provided tensor. Accepts a parameter ID to identify the parameter being updated. An additional lr_scalar can be provided to scale the learning rate from the backend directly. 
+        
+        The update cannot modify its internal state due to backend behavior, so the state dict should be updated and used instead.
+
+        Reference random offset when calculating the random seed, so that parameter perturbations are IID.
+        """
         pass
 
     @abstractmethod
     def get_representative(self) -> Genome:
-        """Returns a representative genome for the current step."""
+        """Returns a representative genome for the current step. Some optimizers are unable to store a representative genome and will raise an exception."""
         pass
 
     @abstractmethod
     def get_update_history(self) -> Any:
-        """Returns a list of lists of genomes representing the history of updates."""
+        """Returns a list of lists of genomes representing the history of updates. This is used for saving a checkpoint as a list of seeds and the optimizer state (if any). It is very storage efficient; a set of seeds is just a list of integers and does not require the model."""
         pass
 
     @abstractmethod
     def restore_from_history(self, history, backend):
-        """Restores the optimizer's state from the provided history of updates."""
+        """Restores the optimizer's state from the provided history of updates. This is used for loading a checkpoint."""
         pass
 
     def get_lr(self, current_step: int) -> float:
@@ -67,53 +94,57 @@ class Optimizer(ABC):
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
     
 class SimpleOpt(Optimizer):
+    """This the optimizer implements the standard ES update rule by approximating the gradient with the rewards, applying mean centering and standard deviation normalizing if set. Mirroring is supported through the sign of the perturb scale, without explicit modification to the update loop."""
     def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
         super().__init__("SimpleOptimizer", total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating)
 
     def update_self(self, genomes: List[Genome], current_step: int):
+        """Updates the optimizer's internal state based on the provided genomes (assumed to have rewards calculated) and current step. Begins by calculating the population mean and standard deviation from the rewards, which is used to create the update scale with the lr. Then, builds a representative genome (which represents the new state of the model) by iterating through the current genomes seeds. If a seed is part of a previous gradient step, it is copied over (duplicates should be averaged), otherwise it is considered a direction of the gradient and scaled by the reward."""
+        assert len(genomes[0].latest_inputs) > 0, "Genomes has no prompts to score! Did you forget to generate data and evaluate first?"
+        assert len(genomes[0].latest_outputs) > 0, "Genomes has no outputs to score! Did you forget to generate data and evaluate first?"
+        assert len(genomes[0].latest_rewards) > 0, "Genomes has no rewards to score! Did you forget to generate data and evaluate first?"
+
         self.rep_genome = Genome()
         lr = self.get_lr(current_step)
-        reward_mean = sum([g.historical_rewards[-1] for g in genomes]) / len(genomes)
-        reward_stddev = (sum([(g.historical_rewards[-1] - reward_mean) ** 2 for g in genomes]) / len(genomes)) ** 0.5
-        new_seeds = {}
-        old_seeds_count = {}
-        for g in genomes:
-            added_old_seed = False
-            for i in range(len(g.seeds)):
-                seed = g.seeds[i]
-                weight = g.perturb_scales[i]
-                if seed not in new_seeds:
-                    if i < g.starting_index:
-                        added_old_seed = True
-                        old_seeds_count[seed] = 1
-                        new_seeds[seed] = weight
-                    else:
-                        update_value = 0.0
-                        if self.norm_by_mean:
-                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
-                        else:
-                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * g.historical_rewards[-1]
-                        if self.norm_by_stddev:
-                            update_value /= (reward_stddev + 1e-8)
-                        new_seeds[seed] = update_value
-                else:
-                    if i < g.starting_index:
-                        if not added_old_seed:
-                            added_old_seed = True
-                            old_seeds_count[seed] += 1
-                        new_seeds[seed] += weight
-                    else:
-                        update_value = 0.0
-                        if self.norm_by_mean:
-                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
-                        else:
-                            update_value = math.copysign(1, weight) * lr * (1/len(genomes)) * g.historical_rewards[-1]
-                        if self.norm_by_stddev:
-                            update_value /= (reward_stddev + 1e-8)
-                        new_seeds[seed] += update_value
-        for seed, count in old_seeds_count.items():
-            new_seeds[seed] /= count
+        
+        # Calculate reward statistics for normalization (if enabled)
+        rewards = [g.historical_rewards[-1] for g in genomes]
+        reward_mean = sum(rewards) / len(genomes)
+        reward_stddev = (sum([(r - reward_mean) ** 2 for r in rewards]) / len(genomes)) ** 0.5
 
+        # Calculate general gradient scaling
+        update_scale = lr * (1/len(genomes))
+        if self.norm_by_stddev:
+            update_scale /= (reward_stddev + 1e-8)
+
+        # Build representative genome from a combination of old seeds (history) and new seeds (gradients)
+        new_seeds = {}
+        old_seeds = {}
+        old_seeds_count = {}
+        
+        for g in genomes:
+            # Calculate the weighting of the gradient for that genome (high reward means more influence)
+            grad_scale = g.historical_rewards[-1] * update_scale
+            if self.norm_by_mean:
+                grad_scale -= reward_mean * update_scale
+            
+            for i, seed in enumerate(g.seeds):
+                weight = g.perturb_scales[i]
+                if i < g.starting_index:
+                    # If the seed is part of a previous gradient step, it is copied over (duplicates should be averaged, so that weights don't increase from historical values)
+                    old_seeds[seed] = old_seeds.get(seed, 0) + weight
+                    old_seeds_count[seed] = old_seeds_count.get(seed, 0) + 1
+                else:
+                    # If the seed is part of the new gradient step, it is considered a direction of the gradient and scaled by the reward
+                    update_value = math.copysign(1, weight) * grad_scale
+                    new_seeds[seed] = new_seeds.get(seed, 0) + update_value
+
+        # Average old seeds and add to new seeds
+        for seed, count in old_seeds_count.items():
+            old_seeds[seed] /= count
+            new_seeds[seed] = new_seeds.get(seed, 0) + old_seeds[seed]
+
+        # Use new seeds to build representative genome
         for seed, weight in new_seeds.items():
             self.rep_genome.seeds.append(seed)
             self.rep_genome.perturb_scales.append(weight)
@@ -122,7 +153,7 @@ class SimpleOpt(Optimizer):
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
     def step_update(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None):
-        """Apply a single optimization step to the given tensor."""
+        """Performs a standard weight update on the given tensor by applying the representative genome's seeds and perturb scales."""
         gen = torch.Generator(device=tensor.device)
         noise = torch.empty_like(tensor)
         for seed, weight in zip(self.rep_genome.seeds, self.rep_genome.perturb_scales):
@@ -135,15 +166,29 @@ class SimpleOpt(Optimizer):
         return self.rep_genome
     
     def get_update_history(self) -> List[Genome]:
+        """Returns the representative genomes of each update step."""
         return self.update_history
     
     def restore_from_history(self, history, backend):
+        """Restores the optimizer's state by tracing the updates from the representative genomes in the provided history."""
+        self.update_history = copy.deepcopy(history)
         for step_genome in history:
             self.rep_genome = step_genome
             backend.update(self)
         self.rep_genome = Genome()
 
 class MomentumOpt(Optimizer):
+    """Initialize the Momentum Optimizer. This optimizer keeps track of a list of seeds over time, which are used to recalculate the momentum update without additional memory overhead and minimum compute overhead.
+
+    Warning: If an alternating lora is used, force_lora_alternating should be set to True to ensure that the optimizer does not mix up the seeds.
+
+    Attributes
+    ----------
+    momentum : float
+        The momentum factor.
+    cutoff_steps : int
+        The number of steps to keep in the velocity history. This is important for memory usage and stability. The optimizer will only look back this many steps when calculating the momentum update. If you use a high momentum factor, you may need to increase this valaue.
+    """
     velocity_seeds_steps: List[List[Tuple[int, float]]]
     cutoff_steps: int
 
@@ -157,58 +202,57 @@ class MomentumOpt(Optimizer):
         self.force_disable_lr = False
 
     def update_self(self, genomes: List[Genome], current_step: int):
+        """Update the optimizer's state based on the genomes as usual, but also update the momentum history.
+        For the momentum update, we add the new seeds to the velocity history and recalculate the momentum coefficient while looping over the appropriate velocity seeds.
+        The old seeds are combined with the seeds yielded from the momentum buffer to create the representative genome (all other behavior matches SimpleOpt).
+        """
         self.rep_genome = Genome()
         self.last_lr = self.get_lr(current_step)
         self.last_step = current_step
         lr_used = self.last_lr if not self.force_disable_lr else 1.0
         
-        reward_mean = sum([g.historical_rewards[-1] for g in genomes]) / len(genomes)
-        reward_stddev = (sum([(g.historical_rewards[-1] - reward_mean) ** 2 for g in genomes]) / (len(genomes))) ** 0.5
+        rewards = [g.historical_rewards[-1] for g in genomes]
+        reward_mean = sum(rewards) / len(genomes)
+        reward_stddev = (sum([(r - reward_mean) ** 2 for r in rewards]) / len(genomes)) ** 0.5
+        
+        # Drop the lr scalar (we apply it later, or not at all if we are using a subclass optimizer which has its own lr)
+        update_scale = (1/len(genomes))
+        if self.norm_by_stddev:
+            update_scale /= (reward_stddev + 1e-8)
 
         new_seeds = {}
         old_seeds = {}
         old_seeds_count = {}
-        for g in genomes:
-            added_old_seed = False
-            for i in range(len(g.seeds)):
-                # If this is a new seed (it's unlikely we have seen it before so we do not optimize for duplicates), add it to the velocity. If this is an old seed (generated by a gradient step), ignore it because we keep a running history of all old seeds.
-                seed = g.seeds[i]
-                weight = g.perturb_scales[i]
-                if i < g.starting_index:
-                    if seed not in old_seeds:
-                        added_old_seed = True
-                        old_seeds_count[seed] = 1
-                        old_seeds[seed] = weight                        
-                    else:
-                        if not added_old_seed:
-                            added_old_seed = True
-                            old_seeds_count[seed] += 1
-                        old_seeds[seed] += weight
-                else:
-                    new_seed_value = 0
-                    if self.norm_by_mean:
-                        new_seed_value = math.copysign(1, weight) * (1/len(genomes)) * (g.historical_rewards[-1] - reward_mean)
-                    else:
-                        new_seed_value = math.copysign(1, weight) * (1/len(genomes)) * g.historical_rewards[-1]
-                    if self.norm_by_stddev:
-                        new_seed_value /= (reward_stddev + 1e-8)
-                    if seed in new_seeds:
-                        new_seeds[seed] += new_seed_value
-                    else:
-                        new_seeds[seed] = new_seed_value
         
+        for g in genomes:
+            grad_scale = g.historical_rewards[-1] * update_scale
+            if self.norm_by_mean:
+                grad_scale -= reward_mean * update_scale
+
+            for i, seed in enumerate(g.seeds):
+                weight = g.perturb_scales[i]
+
+                if i < g.starting_index:
+                    old_seeds[seed] = old_seeds.get(seed, 0) + weight
+                    old_seeds_count[seed] = old_seeds_count.get(seed, 0) + 1
+                else:
+                    update_value = math.copysign(1, weight) * grad_scale
+                    new_seeds[seed] = new_seeds.get(seed, 0) + update_value
+        
+        # Manage old seeds seperately, since we don't want to contaminate the velocity
         for seed, count in old_seeds_count.items():
             old_seeds[seed] /= count
-
-        self.velocity_seeds_steps.append([(seed, new_seeds[seed]) for seed in new_seeds.keys()])
-        if len(self.velocity_seeds_steps) > self.cutoff_steps:
-            self.velocity_seeds_steps.pop(0)
         for seed, weight in old_seeds.items():
             self.rep_genome.seeds.append(seed)
             self.rep_genome.perturb_scales.append(weight)
             self.rep_genome.historical_rewards.append(float('-inf'))
 
-        # Traverse velocity seeds in reverse
+        # Update velocity history with the new seeds
+        self.velocity_seeds_steps.append([(seed, new_seeds[seed]) for seed in new_seeds.keys()])
+        if len(self.velocity_seeds_steps) > self.cutoff_steps:
+            self.velocity_seeds_steps.pop(0)
+
+        # Traverse velocity seeds in reverse. Note that we must consider the alternating lora and avoid cross-contamination of unrelated gradients.
         accumulated_coefficient = 1
         current_head_idx = len(self.velocity_seeds_steps) - 1
         for step_idx in reversed(range(len(self.velocity_seeds_steps))):
@@ -240,27 +284,27 @@ class MomentumOpt(Optimizer):
         return self.rep_genome
     
     def get_update_history(self) -> Any:
-        return {"update_history": self.update_history}
+        """Note: The update history is a list of dictionaries containing the genome, velocity seeds steps, and last lr."""
+        return self.update_history
     
     def restore_from_history(self, history, backend):
-        if isinstance(history, dict):
-            update_history = history.get("update_history", [])
-        else:
-            update_history = history
-
-        for item in update_history:
-            if isinstance(item, dict) and "genome" in item:
-                 self.rep_genome = item["genome"]
-                 self.velocity_seeds_steps = item.get("velocity_seeds_steps", [])
-                 self.last_lr = item.get("last_lr", 0)
-            else:
-                 self.rep_genome = item
-            
+        """Restore both the momentum history and load the model checkpoint."""
+        self.update_history = copy.deepcopy(history)
+        for item in history:
+            self.rep_genome = item["genome"]
+            self.velocity_seeds_steps = item["velocity_seeds_steps"]
+            self.last_lr = item["last_lr"]
             backend.update(self)
         self.rep_genome = Genome()
 
 class MuonOpt(MomentumOpt):
+    """Muon is just momentum with a Newton-Schulz iteration to orthogonalize the gradients. 
+    However, because of this it is significantly more memory intensive than momentum. 
+    Muon is also not a linear combination of seeds so no representative can be computed.
+    Note: LR is applied after the Newton-Schulz iteration during step_update, so it is not used in the update_self call.
+    """
     def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
+        
         super().__init__(total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating, optimizer_name="MuonOptimizer")
         self.force_disable_lr = True
 
@@ -298,6 +342,10 @@ class MuonOpt(MomentumOpt):
         raise NotImplementedError("MuonOpt does not support getting a representative genome.")
     
 class AdamOpt(MomentumOpt):
+    """This version of Adam is ONLY performant with LoRA. It works by recomputing the variance on the fly from the momentum history. This takes many operations and was not a good idea; the code here will be rewritten soon.
+
+    Additionally, this optimizer does not support getting a representative genome, and it was found to be ineffective in practice (highly unstable, tends to diverge). It is recommended to avoid this optimizer.
+    """
     def __init__(self, total_steps: int, learning_rate: float, perturb_scale: float, warmup_steps: int = 0, scheduler: str = "none", momentum: float = 0.6, beta2: float = 0.85, epsilon: float = 1e-5, accumulate_fp32=True, cutoff_steps = 30, norm_by_mean : bool = True, norm_by_stddev : bool = True, force_lora_alternating: bool = False):
         super().__init__(total_steps, learning_rate, perturb_scale, warmup_steps, scheduler, momentum=momentum, cutoff_steps=cutoff_steps, norm_by_mean=norm_by_mean, norm_by_stddev=norm_by_stddev, force_lora_alternating=force_lora_alternating, optimizer_name=f"AdamOptimizer (beta2={beta2}, epsilon={epsilon}, accumulate_fp32={accumulate_fp32})")
         self.beta2 = beta2

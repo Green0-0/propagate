@@ -2,12 +2,12 @@ import gc
 import time
 import torch
 
-from libs.genome import Genome
+from propagate.genome import Genome
 
 from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
 from vllm.distributed.utils import StatelessProcessGroup
 
-from libs.optimizers import Optimizer
+from propagate.optimizers import Optimizer
 
 def _stateless_init_process_group(master_address, master_port, rank, world_size, device):
     pg = StatelessProcessGroup.create(

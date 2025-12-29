@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional
-from libs.datasets.dataset import Dataset
-from libs.datasets.reward import FormatRewardGenerator, RewardGenerator
-from libs.datasets.postprocessreward import PostProcessReward
+from propagate.datasets.dataset import Dataset
+from propagate.datasets.reward import FormatRewardGenerator, RewardGenerator
+from propagate.datasets.postprocessreward import PostProcessReward
 
 def load_hf_dataset(
     hf_data,

@@ -1,17 +1,53 @@
 import random as rand
 from typing import Callable, Dict, List, Tuple
 
-from libs import genome
-from libs.genome import Genome
-from libs.datasets.reward import RewardGenerator
+from propagate import genome
+from propagate.genome import Genome
+from propagate.datasets.reward import RewardGenerator
 
 class Dataset:
-    batch_size: int
+    """The dataset class is in charge of yielding batches of data to the trainer and scoring genomes based on the data.
 
-    # A list of data pairs: (input in ShareGPT format, answer reward function, format reward function)
+    The dataset can either yield a different batch for each genome in the population, or yield the same batch for all genomes. It will always yield the same batch for a mirrored pair.
+
+    Support exists for generalized pass@k. 
+    Generalized pass@k with reward shaping works as follows:
+    For each genome, we create 'passk' outputs for each question.
+    For each genome where the answer reward exceeds 'passk_minimum', we consider this as correct.
+    If the proportion of correct genomes is at least 'passk_proportion', we consider the batch as passed.
+    If the genome passes that question, then its score on each output is the maximum reward it received on that question. 
+    Ie. if it received a partial reward of 0.95, 0.6, 0.6, 0.6, 0.1 across passk@5 outputs with a minimum passing score of 0.9 and a passing proportion of 0.1, then all 5 outputs receive a score of 0.95.
+    Note: Pass@k is ONLY used for training pairs, not for testing pairs, which are always tested zero-shot.
+    
+    Attributes
+    ----------
+    batch_size : int
+        The number of data points in a single batch.
+    pairs_train : List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]
+        A list of training data pairs, each containing input in ShareGPT format, an answer reward function, and a format reward function, ie: List[(input, answer_reward, format_reward)].
+    pairs_test : List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]
+        A list of testing data pairs, with the same structure as pairs_train. Make sure to call generate_test_split.
+    suffix : str
+        A suffix to append to the prompt.
+    i : int
+        The current index in the training data for batch iteration.
+    last_batch : List[Tuple[List[List[Dict[str, str]]], List[Callable[[str], float]], List[Callable[[str], float]]]]
+        Stores the most recent batch of data used for training or evaluation.
+    force_reuse_batches : bool
+        If True, forces the same batch to be reused across the population.
+    reward_func_ratio : float
+        The ratio or weight of the format reward function in the total reward.
+    passk : int
+        The number of outputs to generate per question for pass@k evaluation.
+    passk_proportion : float
+        The minimum proportion of correct answers required to consider a batch as passed.
+    passk_minimum : float
+        The minimum reward threshold to consider an answer correct.
+    postprocess_reward : Callable[[List[Genome]], None]
+        A function to post-process rewards across the population.
+    """
     pairs_train: List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]
     pairs_test: List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]
-    suffix: str
     
     i: int
     last_batch: List[Tuple[List[List[Dict[str, str]]], List[Callable[[str], float]], List[Callable[[str], float]]]]
@@ -31,19 +67,13 @@ class Dataset:
         passk_minimum: float = 0.9,
         postprocess_reward: Callable[[List[Genome]], None] = None                                                           
     ):
+        """Instead of directly passing training pairs and test pairs, pass a list of dataset pairs and appropriate reward generators."""
         self.batch_size = batch_size
         self.suffix = suffix
         self.i = 0
         self.force_reuse_batches = force_reuse_batches
         self.reward_func_ratio = reward_func_ratio
 
-        """Generalized pass@k with reward shaping works as follows:
-        For each genome, we create 'passk' outputs for each question.
-        For each genome where the answer reward exceeds 'passk_minimum', we consider this as correct.
-        If the proportion of correct genomes is at least 'passk_proportion', we consider the batch as passed.
-        If the genome passes that question, then its score on each output is the maximum reward it received on that question. 
-        Ie. if it received a partial reward of 0.95, 0.6, 0.6, 0.6, 0.1 across passk@5 outputs with a minimum passing score of 0.9 and a passing proportion of 0.1, then all 5 outputs receive a score of 0.95.
-        Note: Pass@k is ONLY used for training pairs, not for testing pairs, which are always tested zero-shot."""
         self.passk = passk
         self.passk_proportion = passk_proportion
         self.passk_minimum = passk_minimum
@@ -51,17 +81,16 @@ class Dataset:
 
         self.pairs_train = []
         self.pairs_test = []
+
+        # Build the dataset pairs
         for pair in dataset_pairs:
             self.pairs_train.append((pair[dataset_input_key], answer_reward.build_reward_function(pair), format_reward.build_reward_function(pair)))
 
     def _get_next_batch(self) -> List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]:
-        """
-        Return the next `batch_size` entries from the dataset, wrapping around
-        when the end of the list is reached.
+        """Return the next `batch_size` entries from the dataset, wrapping around when the end of the list is reached.
 
-        Output
-        ------
-        The subset of pairs in ShareGPT format.
+        Returns:
+            List[Tuple[List[Dict[str, str]], Callable[[str], float], Callable[[str], float]]]: The subset of pairs in ShareGPT format.
         """
         n_pairs = len(self.pairs_train)
         if n_pairs == 0:
@@ -87,12 +116,14 @@ class Dataset:
         return batch
     
     def next(self, population_size: int, mirror: bool) -> List[List[List[Dict[str, str]]]]:
-        """
-        Return a separate batch for each member of the population.
+        """Return a separate batch for each member of the population.
 
-        Output
-        ------
-        A list of batches, each batch being a list of input texts in ShareGPT format.
+        Args:
+            population_size (int): The size of the population.
+            mirror (bool): Whether to mirror the batch for a mirrored population.
+
+        Returns:
+            List[List[List[Dict[str, str]]]]: A list of batches, each batch being a list of input texts in ShareGPT format.
         """
         self.last_batch = []
         all_inputs = []
@@ -115,19 +146,29 @@ class Dataset:
         return all_inputs
 
     def get_test_set(self) -> List[List[List[Dict[str, str]]]]:
-        """
-        Return the entire test set.
+        """Return the entire test set.
+
+        Returns:
+            List[List[List[Dict[str, str]]]]: A list containing the test set batches.
+        
+        Raises:
+            ValueError: If the test set is empty or not defined. Make sure to call generate_test_split first.
         """
         self.last_batch_is_train = False
         if not self.pairs_test or len(self.pairs_test) == 0:
-            raise ValueError("Test set is empty or not defined. Generate test split first.")
+            raise ValueError("Test set is empty or not defined. Generate test split with generate_test_split first.")
         dict_lists, answer_funcs, format_funcs = zip(*self.pairs_test)
         self.last_batch = [(list(dict_lists), list(answer_funcs), list(format_funcs))]
         return [list(dict_lists)]
     
     def score_all(self, genomes: List[Genome]):
-        """
-        Compute the scores of all genomes based on the last batch. Update each genome's reward history, and the set of its latest rewards.
+        """Compute the scores of all genomes based on the last batch. Update each genome's reward history, and the set of its latest rewards.
+
+        Args:
+            genomes (List[Genome]): The list of genomes to score.
+
+        Raises:
+            ValueError: If no last batch is available or if genome outputs do not match the batch size.
         """
         if not self.last_batch or len(self.last_batch) == 0:
             raise ValueError("No last batch available. Score should be done on a batch after outputs are generated.")
@@ -220,9 +261,17 @@ def _copy_dataset_config(source: Dataset) -> Dataset:
     return new_dataset
 
 def merge_dataset(datasets: List[Dataset], shuffle: bool = True) -> Dataset:
-    """
-    Merges a list of datasets by concatenating them.
-    Inherits configuration properties from the first dataset in the list.
+    """Merges a list of datasets by concatenating them. Inherits configuration properties from the first dataset in the list.
+
+    Args:
+        datasets (List[Dataset]): A list of datasets to merge.
+        shuffle (bool, optional): Whether to shuffle the merged dataset. Defaults to True.
+
+    Returns:
+        Dataset: The merged dataset.
+    
+    Raises:
+        ValueError: If the dataset list is empty.
     """
     if not datasets:
         raise ValueError("Dataset list cannot be empty.")
@@ -245,13 +294,22 @@ def merge_dataset(datasets: List[Dataset], shuffle: bool = True) -> Dataset:
     return new_dataset
 
 def balanced_merge(datasets: List[Dataset]) -> Dataset:
-    """
-    Merges a list of datasets by interleaving them as evenly as possible based on their lengths.
+    """Merges a list of datasets by interleaving them as evenly as possible based on their lengths.
+    
     This prevents sequences of the same dataset type which can cause overfitting.
     
     Algorithm:
     Assigns each item a 'normalized position' in [0, 1] based on its index 
     and the total length of its source dataset, then sorts by this position.
+
+    Args:
+        datasets (List[Dataset]): A list of datasets to merge.
+
+    Returns:
+        Dataset: The balanced merged dataset.
+
+    Raises:
+        ValueError: If the dataset list is empty.
     """
     if not datasets:
         raise ValueError("Dataset list cannot be empty.")

@@ -3,7 +3,7 @@ from typing import Callable, Dict, List, Optional, Union
 import re
 import math
 
-from libs.genome import Genome
+from propagate.genome import Genome
 
 class PostProcessReward(ABC):
     @abstractmethod

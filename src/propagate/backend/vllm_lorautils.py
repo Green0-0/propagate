@@ -6,8 +6,8 @@ from typing import Dict, List, Tuple
 import torch
 from ray.util import collective
 
-from libs.genome import Genome
-from libs.optimizers import Optimizer
+from propagate.genome import Genome
+from propagate.optimizers import Optimizer
 
 class WorkerExtension:
     def self_report_lora_params_sanity_check(self):

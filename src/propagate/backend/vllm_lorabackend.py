@@ -1,12 +1,12 @@
 import math
 from typing import Dict, List
 from uuid import uuid4
-from libs.backend.backend_abc import Backend
+from propagate.backend.backend_abc import Backend
 
 import signal
 import sys
 import os
-from libs.trainer import SimpleTrainer
+from propagate.trainer import SimpleTrainer
 import ray
 import torch
 import time 
@@ -16,7 +16,7 @@ from ray.util.placement_group import placement_group, remove_placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from vllm import LLM, SamplingParams
 
-from libs.genome import Genome
+from propagate.genome import Genome
 
 from peft import LoraConfig, get_peft_model
 from vllm.lora.request import LoRARequest
@@ -24,7 +24,7 @@ import shutil
 import tempfile
 import gc
 
-from libs.optimizers import Optimizer
+from propagate.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 8, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 15, rep_check_every: int = 100, repeat_tokens_begin_scan_count: int = 500, repeat_tokens_lookback_length: int = 500):
@@ -239,7 +239,7 @@ class VLLMBackendLoRA(Backend):
                 model=self.model_name,
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
-                worker_extension_cls="libs.backend.vllm_lorautils.WorkerExtension",
+                worker_extension_cls="propagate.backend.vllm_lorautils.WorkerExtension",
                 dtype="float16",
                 enable_prefix_caching=False,
                 enforce_eager=False,

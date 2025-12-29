@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "propagate"
+version = "0.1.0"
+description = "A library for performing evolutionary strategy (ES) fine-tuning of LLMs. Supports vLLM, LoRA, and miscellaneous optimizations."
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "vllm",
+    "wandb",
+    "datasets",
+    "peft",
+    "math_verify"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

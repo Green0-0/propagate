@@ -1,8 +1,8 @@
 import json
 import re
-from libs.datasets.reward import RewardGenerator, FormatRewardGenerator
+from propagate.datasets.reward import RewardGenerator, FormatRewardGenerator
 from typing import Callable, List
-from libs.datasets.dataset import Dataset
+from propagate.datasets.dataset import Dataset
 
 class AnswerRewardGenerator(RewardGenerator):
     """
@@ -41,7 +41,7 @@ class AnswerRewardGenerator(RewardGenerator):
         return reward_function
 
 def load_countdown_dataset(batch_size: int = 50, reward_func_ratio: float = 0.1, passk: int = 1, passk_proportion: float = 0.1, passk_minimum: float = 0.9, force_reuse_batches: bool = False) -> Dataset:
-    json_path = "libs/datasets/dataset_files/countdown.json"
+    json_path = "propagate/datasets/dataset_files/countdown.json"
     
     with open(json_path, 'r') as f:
         data = json.load(f)

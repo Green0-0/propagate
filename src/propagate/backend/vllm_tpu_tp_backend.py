@@ -17,9 +17,9 @@ from flax import nnx
 from flax.nnx import Param 
 from vllm import LLM, SamplingParams
 
-from libs.backend.backend_abc import Backend
-from libs.genome import Genome
-from libs.optimizers import Optimizer, SimpleOpt
+from propagate.backend.backend_abc import Backend
+from propagate.genome import Genome
+from propagate.optimizers import Optimizer, SimpleOpt
 
 logging.getLogger("vllm.tpu_inference").setLevel(logging.WARNING)
 

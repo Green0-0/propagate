@@ -1,6 +1,6 @@
 # Note: This script is largely the work of https://github.com/dibbla and has been modified from the repo at https://github.com/VsonicV/es-fine-tuning-paper/tree/main
 from typing import Dict, List
-from libs.backend.backend_abc import Backend
+from propagate.backend.backend_abc import Backend
 
 import signal
 import sys
@@ -14,8 +14,8 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from vllm import LLM, SamplingParams
 from vllm.utils.network_utils import get_ip, get_open_port
 
-from libs.genome import Genome
-from libs.optimizers import Optimizer
+from propagate.genome import Genome
+from propagate.optimizers import Optimizer
 
 class VLLMBackend(Backend):
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
@@ -87,7 +87,7 @@ class VLLMBackend(Backend):
                 model=self.model_name,
                 tensor_parallel_size=1,
                 distributed_executor_backend="ray",
-                worker_extension_cls="libs.backend.vllm_utils.WorkerExtension",
+                worker_extension_cls="propagate.backend.vllm_utils.WorkerExtension",
                 dtype="float16",
                 enable_prefix_caching=False,
                 enforce_eager=False,

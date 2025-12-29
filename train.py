@@ -1,14 +1,14 @@
 
-from libs.backend.vllm_backend import VLLMBackend
+from propagate.backend.vllm_backend import VLLMBackend
 
 def load_datasets(batch_size: int = 50):
     from datasets import load_dataset, Dataset
-    from libs.datasets.postprocessreward import DynamicLengthReward
-    from libs.datasets.postprocessreward import NormalizedLengthReward
-    from libs.datasets.hf_dataset_loader import load_hf_dataset
-    from libs.datasets.dataset import balanced_merge
-    from libs.datasets.countdown_dataset import AnswerRewardGenerator
-    from libs.datasets.reward import MathVerifyRewardGenerator, LastChoiceRewardGenerator, LastMatchRewardGenerator
+    from propagate.datasets.postprocessreward import DynamicLengthReward
+    from propagate.datasets.postprocessreward import NormalizedLengthReward
+    from propagate.datasets.hf_dataset_loader import load_hf_dataset
+    from propagate.datasets.dataset import balanced_merge
+    from propagate.datasets.countdown_dataset import AnswerRewardGenerator
+    from propagate.datasets.reward import MathVerifyRewardGenerator, LastChoiceRewardGenerator, LastMatchRewardGenerator
     import re
     
     def is_float(s: str) -> bool:
@@ -169,9 +169,9 @@ def do_train(model_source = "Qwen/Qwen2.5-3B-Instruct",
              wandb_project = "propagate_optimizers",
              target_dataset = "merged",
              lora = False):
-    from libs.backend.vllm_lorabackend import VLLMBackendLoRA
-    from libs.trainer import SimpleTrainer
-    from libs.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
+    from propagate.backend.vllm_lorabackend import VLLMBackendLoRA
+    from propagate.trainer import SimpleTrainer
+    from propagate.optimizers import SimpleOpt, MomentumOpt, MuonOpt, AdamOpt
     from vllm import SamplingParams
 
     import gc

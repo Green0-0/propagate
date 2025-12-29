@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict
 
-from libs.genome import Genome
-from libs.optimizers import Optimizer
+from propagate.genome import Genome
+from propagate.optimizers import Optimizer
 
 class Backend(ABC):
     def __init__(self, backend_name: str, model_name: str, NUM_GPUS: int = 1, CPUS_PER_GPU: int = 4, GPU_FRACTION_VLLM_WORKER: float = 0.5, sampler: object = None, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):

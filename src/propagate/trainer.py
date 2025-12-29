@@ -1,15 +1,40 @@
 import json
 import os
 from typing import Any, List
-from libs.backend.backend_abc import Backend
-from libs.datasets.dataset import Dataset
-from libs.optimizers import Optimizer
+from propagate.backend.backend_abc import Backend
+from propagate.datasets.dataset import Dataset
+from propagate.optimizers import Optimizer
 import time
 import wandb
 
-from libs.genome import Genome
+from propagate.genome import Genome
 
 class SimpleTrainer:
+    """The standard ES trainer. Orchestrates the training process, logging statistics, and model saving.
+        
+    Attributes
+    ----------
+    population_size : int
+        The number of genomes to generate per iteration.
+    optimizer : Optimizer
+        The optimizer to use for training.
+    backend : Backend
+        The backend to use for generating outputs.
+    dataset : Dataset
+        The dataset to use for training.
+    mirror : bool, optional
+        Whether to mirror the genomes. Defaults to False. Doubles the population size if enabled.
+    wandb_project : str, optional
+        The name of the project to use for logging. Defaults to None.
+    validate_every : int, optional
+        The number of iterations between validation. Defaults to 0.
+    print_samples : bool, optional
+        Whether to print samples. Defaults to False.
+    checkpoint_every : int, optional
+        The number of iterations between checkpoints. Defaults to 0.
+    checkpoint_path : str, optional
+        The path to save checkpoints to. Defaults to "checkpoints/model.json".
+    """
     population_size: int
     optimizer: Optimizer
     backend: Backend
@@ -94,7 +119,117 @@ class SimpleTrainer:
             
         print("#-- Trainer initialized. --#")
 
+    def train(self):
+        """Trains the model for the specified number of iterations.
+        Beguns by yielding the next set of data points, which are sent to the backend alongside the genomes for evaluation.
+        Then, after evaluation, the dataset is used to score the genomes, which are passed to the optimizer to perform the gradient update.
+        Lastly, a new generation is created, and statistics are logged (including val, if applicable)."""
+        while self.iteration_count < self.optimizer.total_steps:
+            self.iteration_count += 1
+
+            start_time = time.time()
+
+            # Evaluation
+            inputs = self.dataset.next(population_size=self.population_size, mirror=self.mirror)
+            self.backend.generate_outputs(self.genomes, self.dataset.suffix, inputs)
+            self.dataset.score_all(self.genomes)
+
+            end_time = time.time()
+
+            print(f"#-- Iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
+            self.log_train_stats(self.genomes, end_time - start_time)
+
+            # Gradient update
+            self.optimizer.update_self(self.genomes, self.iteration_count)
+            self.backend.update(self.optimizer)
+
+            # Validate
+            if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
+                new_genome = Genome()
+                start_time = time.time()
+                prompts = self.dataset.get_test_set()
+                self.backend.generate_outputs([new_genome], self.dataset.suffix, prompts)
+                self.dataset.score_all([new_genome])
+                end_time = time.time()
+                print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
+                self.log_val_stats(new_genome, end_time - start_time)
+            
+            # Save checkpoint
+            if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:
+                base, ext = os.path.splitext(self.checkpoint_path)
+                path = f"{base}_step_{self.iteration_count}{ext}"
+                os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+                self.save_model_seeds(path)
+            
+            # Create next generation of genomes
+            self.genomes = [Genome() for _ in range(self.population_size)]
+            for genome in self.genomes:
+                genome.mutate_seed(self.optimizer.perturb_scale)
+            if self.mirror:
+                mirrored_genomes = []
+                for genome in self.genomes:
+                    mirrored_genomes.append(genome.get_mirrored())
+                self.genomes.extend(mirrored_genomes)
+
+    def save_model_seeds(self, filepath: str):
+        """Get the actual optimizer history from the optimizer (which has some structure and contains genomes), convert the genomes to a json-serializable format, and save it to a file."""
+        history = self.optimizer.get_update_history()
+
+        def serialize_structure(obj):
+            """Recursively convert an arbitrary structure to a json-serializable format."""
+            if isinstance(obj, Genome):
+                return {
+                    "seeds": obj.seeds,
+                    "perturb_scales": obj.perturb_scales,
+                    "historical_rewards": obj.historical_rewards,
+                    "starting_index": obj.starting_index,
+                    "__is_genome__": True
+                }
+            elif isinstance(obj, list):
+                return [serialize_structure(item) for item in obj]
+            elif isinstance(obj, tuple):
+                return tuple(serialize_structure(item) for item in obj)
+            elif isinstance(obj, dict):
+                return {k: serialize_structure(v) for k, v in obj.items()}
+            else:
+                return obj
+
+        serializable_history = serialize_structure(history)
+
+        with open(filepath, "w") as f:
+            json.dump(serializable_history, f, indent=4)
+        print(f"#-- Successfully saved model seeds to {filepath} --#")
+
+    def restore_model(self, filepath: str):
+        """Load the optimizer history from a file, convert the genomes back to their original format, and restore the optimizer."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        def reconstruct_structure(obj):
+            """Recursively convert a json-serializable format back to its original format."""
+            if isinstance(obj, dict):
+                if obj.get("__is_genome__") is True or ("seeds" in obj and "perturb_scales" in obj):
+                    genome = Genome()
+                    genome.seeds = obj.get("seeds", [])
+                    genome.perturb_scales = obj.get("perturb_scales", [])
+                    genome.historical_rewards = obj.get("historical_rewards", [float('-inf')] * len(genome.seeds))
+                    genome.starting_index = obj.get("starting_index", 0)
+                    return genome
+                return {k: reconstruct_structure(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [reconstruct_structure(item) for item in obj]
+            else:
+                return obj
+
+        history = reconstruct_structure(data)
+
+        self.optimizer.restore_from_history(history, self.backend)
+        self.iteration_count = len(history)
+        
+        print(f"#-- Successfully loaded model seeds from {filepath}. Resuming from iteration {self.iteration_count} --#")
+
     def log_train_stats(self, genomes: List[Genome], time_taken: float):
+        """Log the training statistics for the current iteration."""
         sum_scores = sum(genome.historical_rewards[-1] for genome in genomes)
         average = sum_scores / len(genomes)
         stddev = (sum((genome.historical_rewards[-1] - average) ** 2 for genome in genomes) / (len(genomes))) ** 0.5
@@ -134,6 +269,7 @@ class SimpleTrainer:
             print(f"#-- SAMPLE RESPONSE WORST GENOME: --#\n{worst_genome.latest_outputs[0]}\n") 
 
     def log_val_stats(self, genome: Genome, time_taken: float):
+        """Log the validation statistics for the current iteration."""
         score = genome.historical_rewards[-1]
         score_stddev = (sum((genome.latest_rewards[i] - score) ** 2 for i in range(len(genome.latest_rewards))) / (len(genome.latest_rewards)-1)) ** 0.5
         average_response_length = sum(len(response.split()) for response in genome.latest_outputs) / len(genome.latest_outputs)
@@ -153,124 +289,3 @@ class SimpleTrainer:
         print(f"#-- Stats: reward: {score}, response length: {average_response_length} --#")
         if self.print_samples:
             print(f"#-- SAMPLE RESPONSE: --#\n{sample_response}\n")
-
-    def train(self):
-        while self.iteration_count < self.optimizer.total_steps:
-            self.iteration_count += 1
-
-            start_time = time.time()
-            inputs = self.dataset.next(population_size=self.population_size, mirror=self.mirror)
-            self.backend.generate_outputs(self.genomes, self.dataset.suffix, inputs)
-
-            self.dataset.score_all(self.genomes)
-
-            end_time = time.time()
-
-            print(f"#-- Iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
-            self.log_train_stats(self.genomes, end_time - start_time)
-
-            self.optimizer.update_self(self.genomes, self.iteration_count)
-            self.backend.update(self.optimizer)
-
-            new_genome = Genome()
-
-            if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
-                start_time = time.time()
-                prompts = self.dataset.get_test_set()
-                self.backend.generate_outputs([new_genome], self.dataset.suffix, prompts)
-                self.dataset.score_all([new_genome])
-                end_time = time.time()
-                print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
-                self.log_val_stats(new_genome, end_time - start_time)
-            
-            if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:
-                 base, ext = os.path.splitext(self.checkpoint_path)
-                 path = f"{base}_step_{self.iteration_count}{ext}"
-                 os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-                 self.save_model_seeds(path)
-            
-            self.genomes = [Genome() for _ in range(self.population_size)]
-            for genome in self.genomes:
-                genome.mutate_seed(self.optimizer.perturb_scale)
-            if self.mirror:
-                mirrored_genomes = []
-                for genome in self.genomes:
-                    mirrored_genomes.append(genome.get_mirrored())
-                self.genomes.extend(mirrored_genomes)
-
-    def save_model_seeds(self, filepath: str):
-        history = self.optimizer.get_update_history()
-
-        def serialize_structure(obj):
-            if isinstance(obj, Genome):
-                return {
-                    "seeds": obj.seeds,
-                    "perturb_scales": obj.perturb_scales,
-                    "historical_rewards": obj.historical_rewards,
-                    "starting_index": obj.starting_index,
-                    "__is_genome__": True
-                }
-            elif isinstance(obj, list):
-                return [serialize_structure(item) for item in obj]
-            elif isinstance(obj, tuple):
-                return tuple(serialize_structure(item) for item in obj)
-            elif isinstance(obj, dict):
-                return {k: serialize_structure(v) for k, v in obj.items()}
-            else:
-                return obj
-
-        serializable_history = serialize_structure(history)
-
-        try:
-            with open(filepath, "w") as f:
-                json.dump(serializable_history, f, indent=4)
-            print(f"#-- Successfully saved model seeds to {filepath} --#")
-        except Exception as e:
-            print(f"#-- Error saving model seeds: {e} --#")
-
-    def restore_model(self, filepath: str):        
-        try:
-            history = self.load_genome_history(filepath)
-            if not history:
-                print(f"#-- No history found in {filepath} or file is empty. --#")
-                return
-
-            self.optimizer.restore_from_history(history, self.backend)
-            
-            if isinstance(history, list):
-                 self.iteration_count = len(history)
-            elif isinstance(history, dict) and "update_history" in history:
-                 self.iteration_count = len(history["update_history"])
-            
-            print(f"#-- Successfully loaded model seeds from {filepath}. Resuming from iteration {self.iteration_count} --#")
-        except Exception as e:
-            print(f"#-- Error loading model seeds: {e} --#")
-
-    def load_genome_history(self, filepath: str) -> Any:
-        try:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-        except FileNotFoundError:
-            print(f"#-- File {filepath} not found. --#")
-            return []
-
-        def reconstruct_structure(obj):
-            if isinstance(obj, dict):
-                if obj.get("__is_genome__") is True or ("seeds" in obj and "perturb_scales" in obj):
-                    genome = Genome()
-                    genome.seeds = obj.get("seeds", [])
-                    genome.perturb_scales = obj.get("perturb_scales", [])
-                    genome.historical_rewards = obj.get("historical_rewards", [float('-inf')] * len(genome.seeds))
-                    genome.starting_index = obj.get("starting_index", 0)
-                    return genome
-                
-                return {k: reconstruct_structure(v) for k, v in obj.items()}
-            
-            elif isinstance(obj, list):
-                return [reconstruct_structure(item) for item in obj]
-            
-            else:
-                return obj
-
-        history = reconstruct_structure(data)
-        return history
