@@ -1,22 +1,17 @@
 # TODO, in order of priority
-- Update lora backend allreduce
-- Model seed saving and full model saving
-- Test smollm-sft model and mistral-3 3b model, test optimizers on aime
-
-- Dynamic length penalty/length reward through a third reward function on datasets
-- Remove format rewards on validation to have it measure pure performance
-
-- Automatic perturbation scale sweeping, readd sigma to step size
-
+- Optimized LoRA backend with round robin adapter inference
+- Automatic perturbation scale sweeping, rescale step size by sigma
+- Write unit tests
 - Colab/Kaggle notebooks
+- Env training (ie. agentic, coding, multiturn etc), requires dataset input rework
 
-- Alignment datasets with RLHF/PPO/DPO to serve as regularizer (prevent overfitting on math) (note: not sure if this will work)
-- Clean up code/add documentation
-- Optimized lora implementation (max lora limit)
+- RLHF
+- Sglang support
+- Albatross support
+- TPU support
+- Proper model saving
+- Trained demo models, benchmark suite
+- Native quant format training
 
-- Improve optimizers
-- Speciation
-
-- It should be possible to natively train in a quant format, such as by perturbing the scales and centering.
-
-- Multi-turn training
+- Optimizer rework
+- Random sampling rework (hadamard rachemacher)

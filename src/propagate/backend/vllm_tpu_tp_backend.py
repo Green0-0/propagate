@@ -30,6 +30,7 @@ class VllMTPUTPBackend(Backend):
         self.gpu_memory_utilization = gpu_memory_utilization
         self.llm = None
         self.model_worker = None
+        print("### WARNING: EXPERIMENTAL, MAY NOT WORK ###")
 
     def startup(self, trainer=None):
         """Initialize the vLLM TPU engine."""

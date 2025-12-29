@@ -55,7 +55,8 @@ def load_countdown_dataset(batch_size: int = 50, reward_func_ratio: float = 0.1,
     The dataset is pre-downloaded and ships with this repo for testing.
     Slight prompt modifications and are applied for a more consistent format. 
     Note that this diverges from the original paper (along with several other changes), but none of them should matter."""
-    json_path = "propagate/src/propagate/datasets/dataset_files/countdown.json"
+    import os
+    json_path = os.path.join(os.path.dirname(__file__), "dataset_files", "countdown.json")
     
     with open(json_path, 'r') as f:
         data = json.load(f)

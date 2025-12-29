@@ -37,6 +37,7 @@ class TPULoRAWorkerExtension:
     """
     def __init__(self, model_runner):
         self.model_runner = model_runner
+        print("### WARNING: EXPERIMENTAL, WILL NOT WORK ###")
 
     def collect_lora_tensors(self, adapter_id: int) -> Dict[str, Any]:
         """

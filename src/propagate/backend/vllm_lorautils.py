@@ -10,7 +10,25 @@ from propagate.genome import Genome
 from propagate.optimizers import Optimizer
 
 class WorkerExtension:
+    """A Ray actor extension that runs on vLLM workers for LoRA-based operations.
+    It handles LoRA weight updates, perturbations (ES), and synchronization (averaging) across workers.
+    
+    Attributes
+    ----------
+    optimizer_state_per_adapter : Dict[int, Dict[str, Any]]
+        A dictionary storing the optimizer state for each adapter.
+    collective_group_name : str
+        The name of the collective group for weight synchronization.
+    world_size : int
+        The total number of workers in the collective group.
+    rank : int
+        The rank of this worker in the collective group.
+    """
     def self_report_lora_params_sanity_check(self):
+        """Perform a sanity check on the loaded LoRA parameters.
+        Prints information about the adapters, modules, and tensors found on the worker.
+        Used for debugging initialization and adapter loading.
+        """
         print("#-- LoRA Parameters Sanity Check --#")
         lora_manager = self.model_runner.lora_manager
         adapter_manager = self.model_runner.lora_manager._adapter_manager
@@ -63,10 +81,16 @@ class WorkerExtension:
     def _collect_gpu_lora_tensors(self, adapter_id: int) -> Dict[str, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Walk through every LoRA-enabled module and collect the two weight tensors
-        that belong to the given slot. The returned dict maps the *module name*
-        → (lora_a, lora_b).
+        that belong to the given data slot. The returned dict maps the *module name*
+        -> (lora_a, lora_b).
 
         This routine works for both ordinary LoRA layers and packed LoRA layers.
+        
+        Args:
+           adapter_id (int): The ID of the adapter to collect tensors for.
+           
+        Returns:
+           Dict[str, Tuple[torch.Tensor, torch.Tensor]]: A dictionary mapping module names to their LoRA A and B tensors.
         """
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
@@ -114,6 +138,9 @@ class WorkerExtension:
         Inspect one adapter using the same adapter_manager/modules that
         self_report_lora_params_sanity_check references. Safe against
         missing modules or None returns from get_lora().
+        
+        Args:
+            msg (str): A message to print before inspection.
         """
         output = ""
         output += f"#-- inspect_lora called: {msg} --#\n"
@@ -144,6 +171,16 @@ class WorkerExtension:
         print(output)
 
     def init_collective_group(self, world_size: int, rank: int, backend: str = "nccl"):
+        """Initialize the collective group for weight synchronization.
+        
+        Args:
+            world_size (int): The total number of workers.
+            rank (int): The rank of this worker.
+            backend (str, optional): The backend to use. Defaults to "nccl".
+            
+        Returns:
+            bool: True if initialization was successful.
+        """
         self.collective_group_name = "weight_sync_group"
         self.world_size = world_size
         self.rank = rank
@@ -181,7 +218,6 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def perform_global_average_lora(self):
-        #TODO: FIX BUG INVOLVING AVERAGING MORE ADAPTERS THAN THERE ARE GENOMES (ZERO ADAPTERS)
         """
         Make every adapter slot identical to the global mean across:
           - all local adapter slots (intra-worker), and
@@ -189,6 +225,9 @@ class WorkerExtension:
 
         This ensures that after calling this, every slot on every rank has the
         same LoRA weights.
+        
+        Returns:
+            bool: True upon completion.
         """
         # Determine if we can do cross-worker reduction.
         do_collective = (
@@ -225,6 +264,11 @@ class WorkerExtension:
         return True
 
     def destroy_collective_group(self):
+        """Destroy the collective group if it exists.
+        
+        Returns:
+            bool: True if destruction was successful or group didn't exist.
+        """
         if collective.is_group_initialized(self.collective_group_name):
             collective.destroy_collective_group(self.collective_group_name)
         return True
@@ -233,6 +277,14 @@ class WorkerExtension:
         self.destroy_collective_group()
 
     def save_weights_to_disk(self, filepath):
+        """Save the LoRA weights of the first adapter to disk.
+        
+        Args:
+            filepath (str): The path to save the weights to.
+            
+        Returns:
+            bool: True if save was successful, False if no adapters found.
+        """
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
         adapters_dict = adapter_manager.list_adapters()
@@ -255,6 +307,14 @@ class WorkerExtension:
         return True
 
     def load_weights_from_disk(self, filepath):
+        """Load LoRA weights from disk into all adapters.
+        
+        Args:
+            filepath (str): The path to load the weights from.
+            
+        Returns:
+            bool: True after modification.
+        """
         state_dict = torch.load(filepath, map_location='cpu')
         
         lora_manager = self.model_runner.lora_manager
@@ -277,6 +337,14 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def update_weights(self, optimizer: Optimizer, target: str, norm_scale_update: bool):
+        """Update the LoRA weights using the provided optimizer.
+        Supports normalizing updates by the magnitude of the weights.
+        
+        Args:
+            optimizer (Optimizer): The optimizer to update with.
+            target (str): The target matrices to update ("a", "b", or both).
+            norm_scale_update (bool): Whether to scale the update by the norm of the weights.
+        """
         if not hasattr(self, 'optimizer_state_per_adapter'):
             self.optimizer_state_per_adapter = {}
 
@@ -314,6 +382,13 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def perturb_self_weights_multi(self, genomes: List[Genome], target: str):
+        """Perturb the LoRA weights using the provided genomes.
+        Maps each genome to an adapter and applies perturbations.
+        
+        Args:
+            genomes (List[Genome]): The list of genomes to use for perturbation.
+            target (str): The target matrices to perturb ("a", "b", or both).
+        """
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 
@@ -368,6 +443,12 @@ class WorkerExtension:
 
     @torch.inference_mode()
     def restore_self_weights_multi(self, genomes: List[Genome], target: str):
+        """Restore the LoRA weights by removing the perturbations.
+        
+        Args:
+            genomes (List[Genome]): The list of genomes to revert.
+            target (str): The target matrices to revert ("a", "b", or both).
+        """
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 

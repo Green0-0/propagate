@@ -27,6 +27,35 @@ import gc
 from propagate.optimizers import Optimizer
 
 class VLLMBackendLoRA(Backend):
+    """The vLLM backend with LoRA support. Uses Ray to spawn vLLM workers and distribute inference across them.
+    Inference for multiple genomes performed in parallel by perturbing the LoRA adapter weights.
+    This allows for full GPU utilization, but introduces memory and compute overheads, as well as a bit of training instability.
+    The LoRA backend also supports repetition truncation (standard vLLM backend does not), which prevents the model from entering an infinite loop and causing slowdowns. This is highly recommended when training thinking models.
+    Note: Instead of broadcasting adapter weights, the LoRA backend performs an average.
+
+    Attributes
+    ----------
+    lora_rank : int
+        The rank of the LoRA adapters.
+    lora_perturb_target : str
+        The target matrices to perturb ("a", "b", "ab", "b-", "a-"), and the alternating schedule if specified (-).
+    init_lora_weights : str
+        The initialization method for LoRA weights ("zero" or a huggingface LoraConfig parameter).
+    lora_model_source : str
+        The model to generate lora adapters from. This is seperate from the model used to perform inference, and is only used to init adapters.
+    norm_scale_update : bool
+        Whether to normalize updates. This stabilizes training based on the norm of the lora matrices.
+    repeat_tokens_buffer_count : int
+        Buffer size for checking token repetitions.
+    repeat_times_kill : int
+        Number of repetitions allowed before killing a request.
+    rep_check_every : int
+        Check for repetitions every N steps.
+    repeat_tokens_begin_scan_count : int
+        Minimum tokens generated before scanning for repetitions.
+    repeat_tokens_lookback_length : int
+        How far back to look for repetitions.
+    """
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, Sampler: SamplingParams, use_tqdm: bool = False, time_self: bool = False, max_model_len: int = 4096, lora_rank: int = 8, lora_perturb_target: str = "b-", init_lora_weights: str = True, lora_model_source: str = None, norm_scale_update: bool = True, repeat_tokens_buffer_count: int = 20, repeat_times_kill: int = 15, rep_check_every: int = 100, repeat_tokens_begin_scan_count: int = 500, repeat_tokens_lookback_length: int = 500):
         super().__init__(backend_name=f"Rank {str(lora_rank)} LoRA vLLM Backend, Perturb Target: {lora_perturb_target}, Init Method: {init_lora_weights}", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=Sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
         self.lora_model_source = lora_model_source if lora_model_source is not None else model_name
@@ -44,7 +73,15 @@ class VLLMBackendLoRA(Backend):
         self.repeat_tokens_lookback_length = repeat_tokens_lookback_length
 
     def startup(self, trainer: SimpleTrainer):
-        """Initializes the vLLM backend with Ray actors and placement groups."""
+        """Requires the trainer to determine the number of adapters to create (based on the population size).
+        Uses a highly customized LLM subclass with repetition truncation support and proper batched lora inference.
+        Begins by setting up ray as the standard backend does, and initalizes vLLM with lora support.
+        Then creates the LoRA adapters seperately with huggingface peft.
+        Finally, it preloads the adapters by sending dummy inference requests to the vllm workers.
+
+        Args:
+           trainer (SimpleTrainer): The trainer object calling this method.
+        """
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
         os.environ.pop("RAY_GCS_SERVER_ADDRESS", None)
@@ -350,7 +387,12 @@ class VLLMBackendLoRA(Backend):
         print("#-- Backend Initialized --#")
         
     def update(self, optimizer: Optimizer):
-        """Update the model permanently with a genome as the source."""
+        """Update the model permanently with a genome as the source.
+        Updates the LoRA weights, performs global averaging, and toggles the perturbation target.
+        
+        Args:
+            optimizer (Optimizer): The optimizer object.
+        """
         ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer, self.lora_perturb_target, self.norm_scale_update)) for llm in self.inference_engines])
 
         ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
@@ -361,10 +403,18 @@ class VLLMBackendLoRA(Backend):
             self.lora_perturb_target = "a-"
 
     def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
+        """Generate outputs based on the genome and inputs.
+        Distributes genomes to workers, perturbs LoRA weights, runs inference, and collects results.
+        
+        Args:
+            genomes (List[Genome]): The list of genomes to evaluate. These correspond to LoRA adapters.
+            suffix (str): The suffix to append to the prompt.
+            inputs (List[List[Dict[str, str]]]): The inputs to evaluate on.
+        """
         assert len(genomes) == len(inputs), "Number of genomes must match number of input sets."
         if len(genomes) > self.population_size:
             raise ValueError(f"Population size {len(genomes)} exceeds max population size {self.population_size} for this backend.")
-        
+        # Format dataset for generation, cache latest inputs for each genome
         prompts = []
         for idk, i in enumerate(inputs):
             prompt_genome = []
@@ -384,9 +434,9 @@ class VLLMBackendLoRA(Backend):
         if self.time_self:
             start_time = time.time()
         
+        # Parallel perturbation of all LoRA adapters with their respective genomes
         perturb_handles = []
         for eng_idx, llm in enumerate(self.inference_engines):
-            #ray.get(llm.collective_rpc.remote("inspect_lora", args=("PRE PERTURB INSPECTION", )))
             my_genomes = genome_chunks[eng_idx]
             
             if len(my_genomes) == 0:
@@ -404,6 +454,7 @@ class VLLMBackendLoRA(Backend):
         all_gen_handles = []
         genome_chunks_kept = []  # to map results back
 
+        # Parallel inference of all genomes with their respective LoRA adapters
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
             my_prompts = prompt_chunks[eng_idx]
@@ -431,7 +482,6 @@ class VLLMBackendLoRA(Backend):
             all_gen_handles.append(h)
             genome_chunks_kept.append(my_genomes)
 
-        #ray.get(llm.collective_rpc.remote("inspect_lora", args=("POST PERTURB INSPECTION",)))
         all_outputs = ray.get(all_gen_handles)
 
         if self.time_self:
@@ -442,6 +492,7 @@ class VLLMBackendLoRA(Backend):
             for genome, outputs_for_genome in zip(genomes_in_chunk, chunk_results):
                 genome.latest_outputs = outputs_for_genome
         
+        # Parallel restoration of all LoRA adapters
         restore_handles = []
         for eng_idx, llm in enumerate(self.inference_engines):
             my_genomes = genome_chunks[eng_idx]
@@ -452,22 +503,38 @@ class VLLMBackendLoRA(Backend):
                 )
                 restore_handles.append(h)
         
+        # Sync weights across engines to prevent floating point error accumulation during perturb-restore steps
         ray.get(restore_handles)
         ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
-        #ray.get(llm.collective_rpc.remote("inspect_lora", args=("POST RESTORE INSPECTION", )))
         if self.time_self:
             print(f"#-- All adapters restored in {time.time() - end_time:.2f}s --#")
 
     def save_weights_to_disk(self, filepath: str):
+        """Save the LoRA weights of the first inference engine to disk.
+        
+        Args:
+            filepath (str): The path to save the weights to.
+        """
         ray.get(self.inference_engines[0].collective_rpc.remote("save_weights_to_disk", args=(filepath,)))
 
     def load_weights_from_disk(self, filepath: str):
+        """Load LoRA weights from disk into all inference engines.
+        
+        Args:
+            filepath (str): The path to load the weights from.
+        """
         ray.get([llm.collective_rpc.remote("load_weights_from_disk", args=(filepath,)) for llm in self.inference_engines])
 
     def inference(self, conversations: List[List[Dict[str, str]]], suffix: str = None):
         """
-        Inference mode: takes a batch of formatted conversations, 
-        applies tokenizer, runs inference using the base LoRA (lora_0), and returns outputs.
+        Inference mode: takes a batch of formatted conversations, applies tokenizer, runs inference using the base LoRA (lora_0), and returns outputs.
+
+        Args:
+            conversations (List[List[Dict[str, str]]]): A list of conversations to generate from.
+            suffix (str, optional): A suffix to append to the prompt. Defaults to None.
+            
+        Returns:
+            List[str]: A list of generated outputs.
         """
         prompts = []
         for c in conversations:

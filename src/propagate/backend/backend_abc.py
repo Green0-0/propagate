@@ -24,7 +24,10 @@ class Backend(ABC):
 
     @abstractmethod
     def startup(self, trainer=None):
-        """Load the model and prepare the backend for inference. Called before training starts."""
+        """Load the model and prepare the backend for inference. Called before training starts.
+        
+        Args:
+            trainer (SimpleTrainer): The trainer object calling this method. Used to access trainer configuration if needed."""
         pass
 
     @abstractmethod
