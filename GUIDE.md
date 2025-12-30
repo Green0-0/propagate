@@ -1,6 +1,15 @@
 Before reading the guide, try one of the example scripts, wait an hour, and look through the logs/graphs! It's better to observe the code in action than to read about it.
 
 ---
+## Where am I getting my numbers?
+I have ran 150+ experiments to determine the best hyperparameters for a variety of configs.
+
+See them here:
+
+- (Development experiments)
+- (Actual experiments)
+
+
 ## Should I use LoRA?
 If you are hardware constrained (less compute than a 5090) you should NOT use LoRA. LoRA maximizes GPU utilization but increases compute/memory overhead. Unlike standard training setups, LoRA is only used as a proxy for the perturbations, so it does not save memory.
 

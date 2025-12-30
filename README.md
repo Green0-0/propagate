@@ -18,9 +18,9 @@
 
 4. Run ``python examples/demo_countdown.py``. You should be prompted to login to wandb, and then training will begin!
 
-### 🛠️ [Work in progress](TODO.md)
-
 ### 📖 [Guide](GUIDE.md)
+
+### 🛠️ [Work in progress](TODO.md)
 
 ### 📜 Credits:
 - https://openai.com/index/evolution-strategies/
