@@ -1,3 +1,11 @@
+<div align="center">
+  <img src="graphics/header.png" alt="header">
+  <br>
+  Efficiently train thinking models with only forward pass
+  <br>
+  <img src="graphics/sep.png" alt="sep">
+</div>
+
 # ~~Back~~propagate: Train LLMs with Evolutionary Strategies!
 
 Warning: Because of the LoRA backend update, this is currently not fully functional.
