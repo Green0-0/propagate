@@ -8,17 +8,19 @@
 ## 🏃 Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 
-2. Install vllm and wandb: ``pip install vllm wandb datasets peft``
+2. Setup your venv and install vllm: ``https://docs.vllm.ai/en/v0.11.2/getting_started/installation/``
 
-Note: Tested and works on windows with a 5090 (no multigpu). Look for a fork of https://github.com/SystemPanic/vllm-windows with the appropriate CUDA versions and remove ``distributed_executor_backend="ray",`` from ``vllm_backend.py``.
+3. Install the dependencies: ``cd propagate && pip install -e .``
 
-3. Login to wandb, and modify ``test.py`` to your needs. Then run the script!
+Propagate should work wherever vLLM does, including on windows! Look for a fork of https://github.com/SystemPanic/vllm-windows with the appropriate CUDA version, and remove ``distributed_executor_backend="ray",`` from ``vllm_backend.py``.
 
-[Documentation](Docs.md)
+4. Run ``python examples/demo_countdown.py``. You should be prompted to login to wandb, and then training will begin!
 
-[WIP](TODO.md)
+### 🖊️ [Work in progress](TODO.md)
 
-## Replication results:
-Check https://wandb.ai/num110010/propagate_tests.
+### 📖 [Guide](GUIDE.md)
 
-All work in this repository is based off the work of https://github.com/VsonicV/es-fine-tuning-paper. More papers may be implemented someday.
+## Credits:
+- https://openai.com/index/evolution-strategies/
+- https://github.com/VsonicV/es-fine-tuning-paper
+- https://github.com/ESHyperscale/HyperscaleES
