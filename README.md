@@ -2,15 +2,12 @@
   <img src="graphics/header.png" alt="header" width="85%">
   <br>
   <br>
-  <b>Train thinking models using only forward pass!</b>
+  <h2>Train thinking models using only forward pass!</h2>
+  Supports vLLM, LoRA, pass@k, and more to come!
   <br>
   <br>
   <img src="graphics/seperator.png" alt="sep" width="100%">
 </div>
-
-# ~~Back~~propagate: Train LLMs with Evolutionary Strategies!
-
-Warning: Because of the LoRA backend update, this is currently not fully functional.
 
 ## Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
