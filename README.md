@@ -1,6 +1,5 @@
 <div align="center">
   <img src="graphics/header.png" alt="header" width="85%">
-  <br>
   <h3>Train thinking models using evolutionary strategies!</h3>
   <img src="graphics/seperator.png" alt="sep" width="100%">
 </div>
