@@ -1,5 +1,6 @@
 <div align="center">
-  <img src="graphics/header.png" alt="header" width="70%">
+  <img src="graphics/header.png" alt="header" width="85%">
+  <br>
   <br>
   <b>Train thinking models using only forward pass!</b>
   <br>
