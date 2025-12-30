@@ -28,6 +28,8 @@ Note that mirrored doubles your population size. All the numbers above are for t
 ## LR Tuning:
 Warning: A major change will be made to the LR calculation soon.
 
+Warning 2: If you train a different model other than qwen or smollm, I will be unable to help you with the hyperparameter tuning, and you will have to manually sweep the perturb scale and LR.
+
 For now, follow the hyperparameters that are used in the example scripts. These have been pretuned to work well. You should NOT use any of the optimizers, they have been found to decrease performance. 
 
 ## Update Rule
