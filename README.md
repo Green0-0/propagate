@@ -1,9 +1,7 @@
 <div align="center">
   <img src="graphics/header.png" alt="header" width="70%">
   <br>
-  <br>
   <b>Efficiently train thinking models with only forward pass</b>
-  <br>
   <br>
   <img src="graphics/seperator.png" alt="sep" width="100%">
 </div>
