@@ -72,7 +72,7 @@ def load_countdown_dataset(batch_size: int = 50, reward_func_ratio: float = 0.1,
         sharegpt_format = [
             {
                 "role": "user",
-                "content": ncontext
+                "content": context
             }
         ]
 

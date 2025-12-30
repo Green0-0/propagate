@@ -1,6 +1,7 @@
 # TODO, in order of priority
 - Optimized LoRA backend with round robin adapter inference
-- Automatic perturbation scale sweeping, rescale step size by sigma
+- Optimizer-based perturbations
+- Automatic perturbation scale sweeping, rescale lr by sigma
 - Write unit tests
 - Colab/Kaggle notebooks
 - Env training (ie. agentic, coding, multiturn etc), requires dataset input rework
