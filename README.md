@@ -1,7 +1,6 @@
 <div align="center">
   <img src="graphics/header.png" alt="header" width="85%">
   <br>
-  <br>
   <h2>Train thinking models using only forward pass!</h2>
   Supports vLLM, LoRA, pass@k, and more to come!
   <br>
