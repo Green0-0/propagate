@@ -5,7 +5,7 @@
   <b>Efficiently train thinking models with only forward pass</b>
   <br>
   <br>
-  <img src="graphics/sep.png" alt="sep" width="100%">
+  <img src="graphics/seperator.png" alt="sep" width="100%">
 </div>
 
 # ~~Back~~propagate: Train LLMs with Evolutionary Strategies!
