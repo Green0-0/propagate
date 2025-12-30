@@ -7,7 +7,7 @@
   <h2>Train thinking models using evolutionary strategies!</h2>
 </div>
 
-## 🏃 Quick Start:
+### 🏃 Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 
 2. Setup your venv and install vllm: ``https://docs.vllm.ai/en/v0.11.2/getting_started/installation/``
@@ -18,11 +18,11 @@
 
 4. Run ``python examples/demo_countdown.py``. You should be prompted to login to wandb, and then training will begin!
 
-## 🖊️ [Work in progress](TODO.md)
+### 🖊️ [Work in progress](TODO.md)
 
-## 📖 [Guide](GUIDE.md)
+### 📖 [Guide](GUIDE.md)
 
-## Credits:
+### Credits:
 - https://openai.com/index/evolution-strategies/
 - https://github.com/VsonicV/es-fine-tuning-paper
 - https://github.com/ESHyperscale/HyperscaleES
