@@ -1,8 +1,8 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="graphics/headerdark.png">
-    <source media="(prefers-color-scheme: light)" srcset="graphics/headerlight.png">
-    <img alt="header" src="graphics/headerlight.png" width="85%">
+    <source media="(prefers-color-scheme: light)" srcset="graphics/hl.png">
+    <img alt="header" src="graphics/hl.png" width="85%">
   </picture>
   <h2>Train thinking models using evolutionary strategies!</h2>
 </div>
