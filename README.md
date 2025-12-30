@@ -8,7 +8,7 @@
   <img src="graphics/seperator.png" alt="sep" width="100%">
 </div>
 
-## Quick Start:
+## 🏃 Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 
 2. Install vllm and wandb: ``pip install vllm wandb datasets peft``
