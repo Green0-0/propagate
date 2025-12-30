@@ -2,7 +2,7 @@
   <img src="graphics/header.png" alt="header" width="85%">
   <br>
   <h3>Train thinking models using only forward pass!</h3>
-  supports vLLM, LoRA, pass@k, and more
+  Supports vLLM, LoRA, pass@k, and more!
   <br>
   <br>
   <img src="graphics/seperator.png" alt="sep" width="100%">
