@@ -2,7 +2,7 @@
   <img src="graphics/header.png" alt="header" width="85%">
   <h3>Train thinking models using evolutionary strategies!</h3>
   <br>
-  <img src="graphics/seperator.png" alt="sep" width="100%">
+  <img src="graphics/sep.png" alt="sep" width="100%">
 </div>
 
 ## 🏃 Quick Start:
