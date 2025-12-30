@@ -3,7 +3,6 @@
   <br>
   <h3>Train thinking models using only forward pass!</h3>
   <br>
-  <br>
   <img src="graphics/seperator.png" alt="sep" width="100%">
 </div>
 
