@@ -1,7 +1,10 @@
 <div align="center">
-  <img src="graphics/header.png" alt="header" width="85%">
-  <h3>Train thinking models using evolutionary strategies!</h3>
-  <img src="graphics/sep.png" alt="sep" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="graphics/headerdark.png">
+    <source media="(prefers-color-scheme: light)" srcset="graphics/headerlight.png">
+    <img alt="header" src="graphics/headerlight.png" width="85%">
+  </picture>
+  <h2>Train thinking models using evolutionary strategies!</h2>
 </div>
 
 ## 🏃 Quick Start:
