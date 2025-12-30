@@ -20,7 +20,7 @@ try:
 
     backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
 
-    optimizer = SimpleOpt(total_steps=250, learning_rate=0.03, perturb_scale=0.001, norm_by_mean=False, norm_by_stddev=False)
+    optimizer = SimpleOpt(total_steps=250, learning_rate=0.05, perturb_scale=0.001, norm_by_mean=False, norm_by_stddev=False)
 
     trainer = SimpleTrainer(population_size=14,
                             mirror=True,

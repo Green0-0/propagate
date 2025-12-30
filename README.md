@@ -18,11 +18,11 @@
 
 4. Run ``python examples/demo_countdown.py``. You should be prompted to login to wandb, and then training will begin!
 
-### 🖊️ [Work in progress](TODO.md)
+### 🛠️ [Work in progress](TODO.md)
 
 ### 📖 [Guide](GUIDE.md)
 
-### Credits:
+### 📜 Credits:
 - https://openai.com/index/evolution-strategies/
 - https://github.com/VsonicV/es-fine-tuning-paper
 - https://github.com/ESHyperscale/HyperscaleES
