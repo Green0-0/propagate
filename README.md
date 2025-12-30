@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="graphics/header.png" alt="header">
+  <img src="graphics/header.png" alt="header" width="100%">
   <br>
   Efficiently train thinking models with only forward pass
   <br>
-  <img src="graphics/sep.png" alt="sep">
+  <img src="graphics/sep.png" alt="sep" width="100%">
 </div>
 
 # ~~Back~~propagate: Train LLMs with Evolutionary Strategies!
