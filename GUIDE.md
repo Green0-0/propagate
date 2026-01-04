@@ -6,8 +6,8 @@ I have ran 150+ experiments to determine the best hyperparameters for a variety 
 
 See them here:
 
-- (Development experiments)
-- (Actual experiments)
+- [Current experiments](https://wandb.ai/num110010/propagate_optimizers)
+- [Previous experiments](https://wandb.ai/num110010/propagate_tests?nw=nwusernum110010)
 
 
 ## Should I use LoRA?
