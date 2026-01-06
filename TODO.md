@@ -19,5 +19,6 @@
 - Sglang support
 - LMDeploy support
 - Albatross support
+- llamacpp (cpu training) support
 - Trained demo models, benchmark suite
 - Native quant format training
