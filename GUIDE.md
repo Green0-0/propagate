@@ -4,11 +4,7 @@ Before reading the guide, try one of the example scripts, wait an hour, and look
 ## Where am I getting my numbers?
 I have ran 150+ experiments to determine the best hyperparameters for a variety of configs.
 
-See them here:
-
-- [Current experiments](https://wandb.ai/num110010/propagate_optimizers)
-- [Previous experiments](https://wandb.ai/num110010/propagate_tests?nw=nwusernum110010)
-
+(Small writeups soon)
 
 ## Should I use LoRA?
 If you are hardware constrained (less compute than a 5090) you should NOT use LoRA. LoRA maximizes GPU utilization but increases compute/memory overhead. Unlike standard training setups, LoRA is only used as a proxy for the perturbations, so it does not save memory.

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict
 
 from propagate.genome import Genome
-from propagate.optimizers import Optimizer
+from propagate.optimizers.optimizer import Optimizer
 
 class Backend(ABC):
     """Abstract base class for execution backends.
@@ -36,7 +36,7 @@ class Backend(ABC):
         pass
 
     @abstractmethod
-    def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[List[Dict[str, str]]]]):
+    def generate_outputs(self, genomes: List[Genome], optimizer: Optimizer, suffix: str, inputs: List[List[List[Dict[str, str]]]]):
         """Generate outputs based on the genome and inputs. Note that the input is a list of batches (one per genome) of sharegpt data"""
         pass
 

@@ -7,7 +7,7 @@ from propagate.genome import Genome
 from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
 from vllm.distributed.utils import StatelessProcessGroup
 
-from propagate.optimizers import Optimizer
+from propagate.optimizers.optimizer import Optimizer
 
 def _stateless_init_process_group(master_address, master_port, rank, world_size, device):
     pg = StatelessProcessGroup.create(
@@ -36,54 +36,52 @@ class WorkerExtension:
         # check if the worker has an optimizer state
         if not hasattr(self, 'optimizer_state'):
             self.optimizer_state = {}
+        if not hasattr(self, 'rank'):
+            self.rank = 0
         rand_counter = 0
-        for id, p in self.model_runner.model.named_parameters():
-            optimizer.step_update(p.data, rand_counter, id, lr_scalar=float(1.0), state=self.optimizer_state)
+        for id, p in self.model_runner.model.named_parameters():                
+            optimizer.apply_grad(p.data, rand_counter, id, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
             rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def perturb_self_weights(self, genome: Genome):
+    def perturb_self_weights(self, genome: Genome, optimizer: Optimizer):
         """Perturb the model's weights using the provided genome.
         Iterates through the genome's seeds and perturb scales, generating noise and adding it to the weights.
         
         Args:
            genome (Genome): The genome containing the seeds and scales for perturbation.
         """
-        for seed, weight in zip(genome.seeds, genome.perturb_scales):
-            rand_counter = 0
-            for _, p in self.model_runner.model.named_parameters():
-                gen = torch.Generator(device=p.device)
-                gen.manual_seed(int(seed) + rand_counter)
-                rand_counter += 1
-
-                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
-                p.data.add_(noise, alpha=weight)
-                del noise
+        if not hasattr(self, 'optimizer_state'):
+            self.optimizer_state = {}
+        if not hasattr(self, 'rank'):
+            self.rank = 0
+        rand_counter = 0
+        for id, p in self.model_runner.model.named_parameters():
+            optimizer.apply_perturb(genome, p.data, rand_counter, id, invert = False, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
+            rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def restore_self_weights(self, genome: Genome):
+    def restore_self_weights(self, genome: Genome, optimizer: Optimizer):
         """Restore the model's weights by removing the perturbations introduced by the genome.
         Essentially replicates the perturbation process but subtracts the noise instead of adding it.
         
         Args:
             genome (Genome): The genome containing the seeds and scales to reverse.
         """
-        for seed, weight in zip(genome.seeds, genome.perturb_scales):
-            rand_counter = 0
-            for _, p in self.model_runner.model.named_parameters():
-                gen = torch.Generator(device=p.device)
-                gen.manual_seed(int(seed) + rand_counter)
-                rand_counter += 1
-                
-                noise = torch.randn(p.shape, generator=gen, device=p.device, dtype=p.dtype)
-                p.data.sub_(noise, alpha=weight)
-                del noise
+        if not hasattr(self, 'optimizer_state'):
+            self.optimizer_state = {}
+        if not hasattr(self, 'rank'):
+            self.rank = 0
+        rand_counter = 0
+        for _, p in self.model_runner.model.named_parameters():
+            optimizer.apply_perturb(genome, p.data, rand_counter, id, invert = True, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
+            rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
@@ -100,6 +98,7 @@ class WorkerExtension:
         Returns:
             bool: True if initialization was successful.
         """
+        self.rank = rank
         self.inter_pg = _stateless_init_process_group(master_address, master_port, rank, world_size, self.device)
         return True
 

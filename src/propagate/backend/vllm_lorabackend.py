@@ -402,7 +402,7 @@ class VLLMBackendLoRA(Backend):
         elif self.lora_perturb_target == "b-":
             self.lora_perturb_target = "a-"
 
-    def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[Dict[str, str]]]):
+    def generate_outputs(self, genomes: List[Genome], optimizer: Optimizer, suffix: str, inputs: List[List[Dict[str, str]]]):
         """Generate outputs based on the genome and inputs.
         Distributes genomes to workers, perturbs LoRA weights, runs inference, and collects results.
         
@@ -443,7 +443,7 @@ class VLLMBackendLoRA(Backend):
                 continue
                 
             h = llm.collective_rpc.remote(
-                "perturb_self_weights_multi", args=(my_genomes.tolist(), self.lora_perturb_target,)
+                "perturb_self_weights_multi", args=(my_genomes.tolist(), optimizer, self.lora_perturb_target,)
             )
             perturb_handles.append(h)
         ray.get(perturb_handles)
@@ -499,7 +499,7 @@ class VLLMBackendLoRA(Backend):
             
             if len(my_genomes) > 0:
                 h = llm.collective_rpc.remote(
-                    "restore_self_weights_multi", args=(my_genomes.tolist(), self.lora_perturb_target,)
+                    "restore_self_weights_multi", args=(my_genomes.tolist(), optimizer, self.lora_perturb_target,)
                 )
                 restore_handles.append(h)
         

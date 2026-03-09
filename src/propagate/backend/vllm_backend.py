@@ -15,7 +15,7 @@ from vllm import LLM, SamplingParams
 from vllm.utils.network_utils import get_ip, get_open_port
 
 from propagate.genome import Genome
-from propagate.optimizers import Optimizer
+from propagate.optimizers.optimizer import Optimizer
 
 class VLLMBackend(Backend):
     """The standard vLLM backend. Uses Ray to spawn vLLM workers and distribute inference across them.
@@ -177,7 +177,7 @@ class VLLMBackend(Backend):
         if self.NUM_GPUS > 1:
             ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
 
-    def generate_outputs(self, genomes: List[Genome], suffix: str, inputs: List[List[List[Dict[str, str]]]]):
+    def generate_outputs(self, genomes: List[Genome], optimizer: Optimizer, suffix: str, inputs: List[List[List[Dict[str, str]]]]):
         """Generate outputs based on the genome and inputs.
         Updates the genomes with their new outputs.
         
@@ -212,7 +212,7 @@ class VLLMBackend(Backend):
                 prompt_set = next(ds)
             except StopIteration:
                 break
-            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome,)))
+            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer,)))
             handle, start_ts = self.evaluate_countdown_handle(llm, prompt_set)
             inflight[handle] = {"engine": llm, "engine_idx": eng_idx, "genome": genome, "start_ts": start_ts}
 
@@ -231,13 +231,13 @@ class VLLMBackend(Backend):
 
             # Restore weights and schedule next generation
             llm = meta["engine"]
-            ray.get(llm.collective_rpc.remote("restore_self_weights", args=(genome,)))
+            ray.get(llm.collective_rpc.remote("restore_self_weights", args=(genome, optimizer,)))
             try:
                 genome = next(gs)
                 prompts_set = next(ds)
             except StopIteration:
                 continue
-            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome,)))
+            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer,)))
             handle, start_ts = self.evaluate_countdown_handle(llm, prompts_set)
             inflight[handle] = {"engine": llm, "engine_idx": meta["engine_idx"], "genome": genome, "start_ts": start_ts}
             if self.time_self:

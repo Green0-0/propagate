@@ -7,7 +7,7 @@ import torch
 from ray.util import collective
 
 from propagate.genome import Genome
-from propagate.optimizers import Optimizer
+from propagate.optimizers.optimizer import Optimizer
 
 class WorkerExtension:
     """A Ray actor extension that runs on vLLM workers for LoRA-based operations.
@@ -347,7 +347,9 @@ class WorkerExtension:
         """
         if not hasattr(self, 'optimizer_state_per_adapter'):
             self.optimizer_state_per_adapter = {}
-
+        if not hasattr(self, 'rank'):
+            self.rank = 0
+            
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 
@@ -370,10 +372,10 @@ class WorkerExtension:
                     combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
                     layer_norm_scale = 1.0 / (combined_norm + eps)
                 if "a" in target.lower():
-                    optimizer.step_update(lora_a.data, rand_counter, (aid, id, "a"), lr_scalar=float(layer_norm_scale), state=state)
+                    optimizer.apply_grad(lora_a.data, rand_counter, (aid, id, "a"), lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                     rand_counter += 1
                 if "b" in target.lower():
-                    optimizer.step_update(lora_b.data, rand_counter, (aid, id, "b"), lr_scalar=float(layer_norm_scale), state=state)
+                    optimizer.apply_grad(lora_b.data, rand_counter, (aid, id, "b"), lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                     rand_counter += 1
                 
         if torch.cuda.is_available():
@@ -381,7 +383,7 @@ class WorkerExtension:
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def perturb_self_weights_multi(self, genomes: List[Genome], target: str):
+    def perturb_self_weights_multi(self, genomes: List[Genome], optimizer: Optimizer, target: str):
         """Perturb the LoRA weights using the provided genomes.
         Maps each genome to an adapter and applies perturbations.
         
@@ -389,6 +391,11 @@ class WorkerExtension:
             genomes (List[Genome]): The list of genomes to use for perturbation.
             target (str): The target matrices to perturb ("a", "b", or both).
         """
+        if not hasattr(self, 'optimizer_state_per_adapter'):
+            self.optimizer_state_per_adapter = {}
+        if not hasattr(self, 'rank'):
+            self.rank = 0
+            
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 
@@ -404,51 +411,45 @@ class WorkerExtension:
         for i, genome in enumerate(genomes):
             aid, _ = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
+            state = self.optimizer_state_per_adapter[aid]
+            
+            rand_counter = 0
+            for layer_name, (lora_a, lora_b) in sorted(weights.items()):
+                cache_key = (aid, layer_name)
+                if cache_key in self._norm_cache:
+                    layer_norm_scale = self._norm_cache[cache_key]
+                else:
+                    norm_a = torch.norm(lora_a)
+                    norm_b = torch.norm(lora_b)
+                    combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
+                    
+                    layer_norm_scale = 1.0 / (combined_norm + eps)
+                    self._norm_cache[cache_key] = layer_norm_scale
 
-            for seed, weight in zip(genome.seeds, genome.perturb_scales):
-                rand_counter = 0
-                
-                for layer_name, (lora_a, lora_b) in sorted(weights.items()):
-                    cache_key = (aid, layer_name)
-                    if cache_key in self._norm_cache:
-                        layer_norm_scale = self._norm_cache[cache_key]
-                    else:
-                        norm_a = torch.norm(lora_a)
-                        norm_b = torch.norm(lora_b)
-                        combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
-                        
-                        layer_norm_scale = 1.0 / (combined_norm + eps)
-                        self._norm_cache[cache_key] = layer_norm_scale
-
-                    if "a" in target.lower():
-                        gen = torch.Generator(device=lora_a.device)
-                        gen.manual_seed(int(seed) + rand_counter)
-                        rand_counter += 1
-
-                        noise = torch.randn(lora_a.shape, generator=gen, device=lora_a.device, dtype=lora_a.dtype)
-                        lora_a.data.add_(noise, alpha=float(weight * layer_norm_scale))
-                        del noise
-
-                    if "b" in target.lower():
-                        gen = torch.Generator(device=lora_b.device)
-                        gen.manual_seed(int(seed) + rand_counter)
-                        rand_counter += 1
-
-                        noise = torch.randn(lora_b.shape, generator=gen, device=lora_b.device, dtype=lora_b.dtype)
-                        lora_b.data.add_(noise, alpha=float(weight * layer_norm_scale))
-                        del noise
+                if "a" in target.lower():
+                    optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, id, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    rand_counter += 1
+                    
+                if "b" in target.lower():
+                    optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, id, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def restore_self_weights_multi(self, genomes: List[Genome], target: str):
+    def restore_self_weights_multi(self, genomes: List[Genome], optimizer: Optimizer, target: str):
         """Restore the LoRA weights by removing the perturbations.
         
         Args:
             genomes (List[Genome]): The list of genomes to revert.
             target (str): The target matrices to revert ("a", "b", or both).
         """
+        if not hasattr(self, 'optimizer_state_per_adapter'):
+            self.optimizer_state_per_adapter = {}
+        if not hasattr(self, 'rank'):
+            self.rank = 0
+            
         lora_manager = self.model_runner.lora_manager
         adapter_manager = lora_manager._adapter_manager
 
@@ -465,7 +466,8 @@ class WorkerExtension:
         for i, genome in enumerate(genomes):
             aid, _lora_model = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
-
+            state = self.optimizer_state_per_adapter[aid]
+            
             for seed, weight in zip(genome.seeds, genome.perturb_scales):
                 rand_counter = 0
 
@@ -477,22 +479,12 @@ class WorkerExtension:
                         raise RuntimeError("Normalization cache not found during restore.")
                     
                     if "a" in target.lower():
-                        gen = torch.Generator(device=lora_a.device)
-                        gen.manual_seed(int(seed) + rand_counter)
+                        optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, id, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                         rand_counter += 1
-
-                        noise = torch.randn(lora_a.shape, generator=gen, device=lora_a.device, dtype=lora_a.dtype)
-                        lora_a.data.sub_(noise, alpha=float(weight * layer_norm_scale))
-                        del noise
-
+                        
                     if "b" in target.lower():
-                        gen = torch.Generator(device=lora_b.device)
-                        gen.manual_seed(int(seed) + rand_counter)
+                        optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, id, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                         rand_counter += 1
-
-                        noise = torch.randn(lora_b.shape, generator=gen, device=lora_b.device, dtype=lora_b.dtype)
-                        lora_b.data.sub_(noise, alpha=float(weight * layer_norm_scale))
-                        del noise
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()

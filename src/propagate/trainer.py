@@ -3,7 +3,7 @@ import os
 from typing import Any, List
 from propagate.backend.backend_abc import Backend
 from propagate.datasets.dataset import Dataset
-from propagate.optimizers import Optimizer
+from propagate.optimizers.optimizer import Optimizer
 import time
 import wandb
 
@@ -14,8 +14,6 @@ class SimpleTrainer:
         
     Attributes
     ----------
-    population_size : int
-        The number of genomes to generate per iteration.
     optimizer : Optimizer
         The optimizer to use for training.
     backend : Backend
@@ -35,7 +33,6 @@ class SimpleTrainer:
     checkpoint_path : str, optional
         The path to save checkpoints to. Defaults to "checkpoints/model.json".
     """
-    population_size: int
     optimizer: Optimizer
     backend: Backend
     dataset: Dataset
@@ -47,20 +44,19 @@ class SimpleTrainer:
 
     wandb_project: str
 
-    def __init__(self, population_size: int, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
+    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
-        print(f"#-- Population Size: {population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.perturb_scale} --#")
+        print(f"#-- Population Size: {optimizer.population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.perturb_scale} --#")
         self.optimizer = optimizer
         self.backend = backend
         self.dataset = dataset
-        self.population_size = population_size
         self.mirror = mirror
         if mirror:
             print("#-- Mirror mode enabled: population size doubled. --#")
         
         backend.startup(self)
         
-        self.genomes = [Genome() for _ in range(population_size)]
+        self.genomes = [Genome() for _ in range(optimizer.population_size)]
         for genome in self.genomes:
             genome.mutate_seed(optimizer.perturb_scale)
         if mirror:
@@ -81,15 +77,13 @@ class SimpleTrainer:
             try:
                 wandb.login()
                 config = {
-                    "population_size": population_size,
+                    "population_size": optimizer.population_size,
                     "mirror": mirror,
                     "total_steps": optimizer.total_steps,
                     "learning_rate": optimizer.learning_rate,
                     "perturb_scale": optimizer.perturb_scale,
                     "optimizer": optimizer.optimizer_name,
                     "optimizer_mean_norm": optimizer.norm_by_mean,
-                    "optimizer_stddev_norm": optimizer.norm_by_stddev,
-                    "optimizer_force_lora_alternating": optimizer.force_lora_alternating,
                     "warmup_steps": optimizer.warmup_steps,
                     "scheduler": optimizer.scheduler,
                     "batch_size": dataset.batch_size,
@@ -111,6 +105,7 @@ class SimpleTrainer:
                 wandb.init(project=self.wandb_project, config=config)
                 wandb.define_metric("iteration_count")
                 wandb.define_metric("train/*", step_metric="iteration_count")
+                wandb.define_metric("misc/*", step_metric="iteration_count")
                 wandb.define_metric("val/*", step_metric="iteration_count")
                 print(f"#-- WandB logging initialized for project: {self.wandb_project} --#")
             except Exception as e:
@@ -130,8 +125,8 @@ class SimpleTrainer:
             start_time = time.time()
 
             # Evaluation
-            inputs = self.dataset.next(population_size=self.population_size, mirror=self.mirror)
-            self.backend.generate_outputs(self.genomes, self.dataset.suffix, inputs)
+            inputs = self.dataset.next(population_size=self.optimizer.population_size, mirror=self.mirror)
+            self.backend.generate_outputs(self.genomes, self.optimizer, self.dataset.suffix, inputs)
             self.dataset.score_all(self.genomes)
 
             end_time = time.time()
@@ -148,7 +143,7 @@ class SimpleTrainer:
                 new_genome = Genome()
                 start_time = time.time()
                 prompts = self.dataset.get_test_set()
-                self.backend.generate_outputs([new_genome], self.dataset.suffix, prompts)
+                self.backend.generate_outputs([new_genome], self.optimizer, self.dataset.suffix, prompts)
                 self.dataset.score_all([new_genome])
                 end_time = time.time()
                 print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
@@ -162,7 +157,7 @@ class SimpleTrainer:
                 self.save_model_seeds(path)
             
             # Create next generation of genomes
-            self.genomes = [Genome() for _ in range(self.population_size)]
+            self.genomes = [Genome() for _ in range(self.optimizer.population_size)]
             for genome in self.genomes:
                 genome.mutate_seed(self.optimizer.perturb_scale)
             if self.mirror:

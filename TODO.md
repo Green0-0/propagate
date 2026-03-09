@@ -1,24 +1,30 @@
 # TODO:
 ### In progress:
-- Rescale lr by sigma, automatic sigma sweeping
-- Colab/Kaggle notebooks
+- Broadcast sync optimizer state
+- Dynamic sigma based on 1/5th rule (Changes to trainer)
+- Centered eval for logging, drop extremely bad steps, centered eval gradient calculation (Changes to trainer)
+- Line search genome on previous gradient (Changes to trainer)
+- Simplify backends, cleanup lora backend
+- Update tutorials, documentation, docstrings, model saving
 
 ### Experimental:
-- Optimizer rework: implement nesterov momentum/adam (maybe muon too?)
-- RLHF: implemented, may work, requires a lot of testing
-- TPU Support (exists and tested but is suboptimal; lora doesn't work, may need to wait for vLLM updates)
+- New optimizer chains, NAdam, Muon, fp32, rank-centering, SignSGD
 
 ### Planned:
+- Per layer optimizers, exclude non-trainable params from optimization
+
+- RLHF: implemented, may work, requires a lot of testing
+- TPU Support (currently broken because of optimizer update)
+
+- Colab/Kaggle notebooks
+
 - Optimized LoRA backend with round robin adapter inference
 - Write unit tests
-- Random sampling rework (hadamard rachemacher)
+
 - Env training (ie. agentic, coding, multiturn etc), requires dataset input rework
 - Proper model saving: currently waiting for official ES github to find a solution, will write one myself if progress stalls
 
 ### Possible:
-- Sglang support
-- LMDeploy support
-- Albatross support
 - llamacpp (cpu training) support
 - Trained demo models, benchmark suite
 - Native quant format training
