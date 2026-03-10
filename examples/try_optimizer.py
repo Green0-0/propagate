@@ -22,8 +22,8 @@ try:
     backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
 
     perturb_chain = [chain.Init_Perturbation_Bernoulli(), chain.Scale_Perturbation(div_by_pop=False, mul_by_lr=False, div_by_rmsprop_block=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
-    update_chain = [chain_misc.Direct_Weight_Decay(), chain.Init_Perturbation_Bernoulli(), chain_log.Log_Perturb_Norms(), chain_adam.OC_Compute_RMSProp_Blockwise(), chain_misc.OC_Muon_Whiten_Perturb_Buffer(), chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, div_by_rmsprop_block=True), chain_misc.Probabilistic_Zero_Perturb_Buffer(), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer(), chain_log.Log_RMSProp_Norms()]
-    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=0.05, perturb_scale=0.001, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False)
+    update_chain = [chain_misc.Direct_Weight_Decay(), chain.Init_Perturbation_Bernoulli(), chain_log.Log_Perturb_Norms(), chain_adam.OC_Compute_RMSProp_Blockwise(), chain.Zero_Perturb_Buffer(), chain_adam_seeded.OC_Update_Seed_History(), chain_adam_seeded.OC_Apply_Momentum_Seeded(bernoulli_center=0.5), chain_misc.OC_Muon_Whiten_Perturb_Buffer(), chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, div_by_rmsprop_block=True), chain_misc.Probabilistic_Zero_Perturb_Buffer(), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer(), chain_log.Log_RMSProp_Norms()]
+    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=10, perturb_scale=0.005, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False)
 
     trainer = SimpleTrainer(mirror=True,
                             optimizer=optimizer,

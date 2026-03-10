@@ -20,7 +20,7 @@ class OC_Update_Seed_History(OptimizerChain):
             
 class OC_Apply_Momentum_Seeded(OptimizerChain):
     """Warning: Momentum is ADDED to the buffer and does not replace it. Make sure to zero the buffer if you want only the momentum in it."""
-    def __init__(self, coeff_old = 0.95, coeff_new = 0.05, force_init_zeros = True, bernoulli_center = -999):
+    def __init__(self, coeff_old = 0.95, coeff_new = 0.05, force_init_zeros = True, bernoulli_center:float = -999):
         self.coeff_old = coeff_old
         self.coeff_new = coeff_new
         self.force_init_zeros = force_init_zeros
