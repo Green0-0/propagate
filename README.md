@@ -7,6 +7,8 @@
   <h2>Train thinking models using evolutionary strategies!</h2>
 </div>
 
+# THIS REPO IS UNDERGOING SIGNFICANT REWRITES TO THE OPTIMIZER AND MAY NOT WORK RIGHT NOW.
+
 ### 🏃 Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 

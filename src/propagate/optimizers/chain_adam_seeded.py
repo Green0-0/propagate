@@ -54,7 +54,7 @@ class OC_Apply_Momentum_Seeded(OptimizerChain):
         del momentum_buffer, buffer
         
 class OC_Apply_RMSProp_Seeded(OptimizerChain):
-    def __init__(self, coeff_old = 0.95, coeff_new = 0.05, force_init_ones = True, epsilon = 1e-5, bernoulli_center = -999):
+    def __init__(self, coeff_old = 0.95, coeff_new = 0.05, force_init_ones: bool = True, epsilon: float = 1e-5, bernoulli_center: float = -999):
         self.coeff_old = coeff_old
         self.coeff_new = coeff_new
         self.force_init_ones = force_init_ones

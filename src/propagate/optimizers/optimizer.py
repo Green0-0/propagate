@@ -4,7 +4,7 @@ from typing import Dict, List
 import torch
 
 from propagate.genome import Genome
-
+from propagate.optimizers.chain import Sub_Perturb_Buffer, Add_Perturb_Buffer
 import math
 
 class Optimizer():
@@ -31,7 +31,7 @@ class Optimizer():
     norm_by_mean : bool
         Whether to normalize the gradient by the mean reward. This is required for non-mirrored training.
     """
-    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, population_size: int, perturb_chain: List[OptimizerChain], inverted_perturb_chain: List[OptimizerChain], update_chain: List[OptimizerChain], warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, rank_norm_rewards: bool = True):
+    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, population_size: int, perturb_chain: List[OptimizerChain], update_chain: List[OptimizerChain], inverted_perturb_chain: List[OptimizerChain] = None, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, rank_norm_rewards: bool = True):
         self.optimizer_name = optimizer_name
         self.total_steps = total_steps
         self.learning_rate = learning_rate
@@ -43,8 +43,19 @@ class Optimizer():
         self.last_rstd = 1
         
         self.perturb_chain = perturb_chain
-        self.inverted_perturb_chain = inverted_perturb_chain
         self.update_chain = update_chain
+        if inverted_perturb_chain is None:
+            subtractor = Sub_Perturb_Buffer()
+            self.inverted_perturb_chain = copy.deepcopy(self.perturb_chain)
+            found = False
+            for i in range(len(self.inverted_perturb_chain) - 1, -1, -1):
+                if isinstance(self.inverted_perturb_chain[i], Add_Perturb_Buffer):
+                    found = True
+                    self.inverted_perturb_chain[i] = subtractor
+                    break
+            assert found, "Did not find an add operation to replace with a sub operation for the inverted perturbation chain."
+        else:
+            self.inverted_perturb_chain = inverted_perturb_chain
         
         self.warmup_steps = warmup_steps
         self.scheduler = scheduler

@@ -56,6 +56,14 @@ class Add_Perturb_Buffer(OptimizerChain):
         perturbation = state["perturb_buffer"]
         tensor.add_(perturbation.to(tensor.dtype))
 
+class Sub_Perturb_Buffer(OptimizerChain):
+    @torch.no_grad()
+    def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if "perturb_buffer" not in state:
+            raise ValueError("State dict is missing the perturbation to commit.")
+        perturbation = state["perturb_buffer"]
+        tensor.add_(perturbation.to(tensor.dtype))
+
 class Delete_Perturb_Buffer(OptimizerChain):
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):

@@ -72,11 +72,9 @@ class Direct_Weight_Decay(OptimizerChain):
     
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
-        tensor.sub_(tensor.abs().pow_(self.exponent).copysign_(tensor).mul_(self.lambda_val))
-        
-        
-        
-        
+        decay = tensor.abs().pow_(self.exponent).copysign_(tensor).mul_(self.lambda_val)
+        tensor.sub_(decay)
+        del decay
         
 # todo?: Variance/std calculation on independent seeds to squeeze certain parts of the gradient which are noisy/have low confidence
 # a statistical optimizer could be useful...
