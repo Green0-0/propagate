@@ -100,7 +100,7 @@ class RegexRewardGenerator(RewardGenerator):
             Defaults to extracting content within <answer> tags.
         lowercase (bool, optional): Whether to perform case-insensitive matching. Defaults to True.
     """
-    def __init__(self, target_key: str, wrapper_regex: str = r"<answer>(.*?)<\/answer>", lowercase: bool = True):
+    def __init__(self, target_key: str, wrapper_regex: str = r"<answer>(.*?)</answer>", lowercase: bool = True):
         self.wrapper_regex = wrapper_regex
         self.lowercase = lowercase
         self.target_key = target_key
@@ -201,13 +201,13 @@ class MathVerifyRewardGenerator(RewardGenerator):
         extraction_config (Optional[List[LatexExtractionConfig]], optional): Configuration for `math-verify` to control
             how expressions are parsed and normalized. Defaults to a standard configuration if None.
         wrapper_regex (Optional[str], optional): Regex to limit the search space for the answer (e.g., inside tags).
-            Defaults to r"<answer>(.*?)<\/answer>".
+            Defaults to r"<answer>(.*?)</answer>".
     """
     def __init__(
         self, 
         target_answer_key: str, 
         extraction_config: Optional[List[LatexExtractionConfig]] = None, 
-        wrapper_regex: Optional[str] = r"<answer>(.*?)<\/answer>"
+        wrapper_regex: Optional[str] = r"<answer>(.*?)</answer>"
     ):
         self.target_key = target_answer_key
         self.wrapper_regex = wrapper_regex
@@ -285,14 +285,14 @@ class LastChoiceRewardGenerator(RewardGenerator):
         target_answer_key (str): The key in the input dictionary containing the correct choice.
         lowercase (bool, optional): Whether to perform case-insensitive matching. Defaults to True.
         wrapper_regex (Optional[str], optional): Regex to limit the search space for the answer (e.g., inside tags).
-            Defaults to r"<answer>(.*?)<\/answer>".
+            Defaults to r"<answer>(.*?)</answer>".
     """
     def __init__(
         self, 
         choices: Union[List[str], str], 
         target_answer_key: str, 
         lowercase: bool = True, 
-        wrapper_regex: Optional[str] = r"<answer>(.*?)<\/answer>"
+        wrapper_regex: Optional[str] = r"<answer>(.*?)</answer>"
     ):
         self.choices = choices
         self.target_answer_key = target_answer_key
