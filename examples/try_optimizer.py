@@ -14,7 +14,7 @@ gc.collect()
 torch.cuda.empty_cache()
 
 try:
-    dataset = load_countdown_dataset(batch_size=200)
+    dataset = load_countdown_dataset(batch_size=300, force_reuse_batches=True)
     dataset.generate_test_split(test_fraction=0.1, fold_index=1)
 
     sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
@@ -23,7 +23,7 @@ try:
 
     perturb_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(div_by_pop=False, mul_by_lr=False, div_by_rmsprop_block=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
     update_chain = [chain.Init_Perturbation_Gaussian(), chain_log.Log_Perturb_Norms(), chain_log.Log_Perturb_Means(), chain_log.Log_Perturb_Variances(), chain_adam.OC_Compute_RMSProp_Blockwise(), chain.Zero_Perturb_Buffer(), chain_adam_seeded.OC_Update_Seed_History(), chain_adam_seeded.OC_Apply_Momentum_Seeded(), chain.Sign_Perturb_Buffer(), chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, div_by_rmsprop_block=True), chain_misc.Probabilistic_Zero_Perturb_Buffer(), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer(), chain_log.Log_RMSProp_Norms()]
-    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=10, perturb_scale=0.001, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False)
+    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=30, perturb_scale=0.001, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False)
 
     trainer = SimpleTrainer(mirror=True,
                             optimizer=optimizer,
