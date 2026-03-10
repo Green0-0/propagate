@@ -6,6 +6,9 @@ from typing import Dict
 import torch
 import wandb
 
+import pandas as pd        
+import plotly.express as px
+
 class Log_Perturb_Norms(OptimizerChain):
     # Note: This logs a scatterplot of hundreds of tensors per step id'd by their parameter id
     # Do log should only be True on rank zero
@@ -16,6 +19,8 @@ class Log_Perturb_Norms(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if do_log == False:
+            return
         if wandb.run is None:
             wandb.init(
                 project="propagate-experimental-logging",
@@ -23,8 +28,6 @@ class Log_Perturb_Norms(OptimizerChain):
                 job_type="experimental-debug",
                 tags=["debug", "actor-logs"]
             )
-        if do_log == False:
-            return
         if "perturb_buffer" not in state:
             raise ValueError("Perturbation buffer does not exist to log?")
         if "step" not in state:
@@ -39,11 +42,22 @@ class Log_Perturb_Norms(OptimizerChain):
             table = wandb.Table(columns=["step", "value", "parameter_id"])
             data = {"start": parameter_id, "logged_at_step":False, "data": table}
             state[key] = data
-        if step-1 in self.log_at:
+        if step - 1 in self.log_at:
             if data["logged_at_step"] == False:
                 data["logged_at_step"] = True
                 logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
-                wandb.log({f"misc/{self.source}": logged_table})
+                df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
+                fig = px.scatter(
+                    df, 
+                    x="step", 
+                    y="value", 
+                    color="parameter_id",
+                    title=f"Perturbation Norms: {self.source}"
+                )
+                wandb.log({
+                    f"misc/{self.source}": logged_table,
+                    f"misc/{self.source}_plot": fig
+                })
         else:
             data["logged_at_step"] = False
         norms = torch.linalg.vector_norm(state["perturb_buffer"], dtype=torch.float32).item()
@@ -56,6 +70,8 @@ class Log_Perturb_Means(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if do_log == False:
+            return
         if wandb.run is None:
             wandb.init(
                 project="propagate-experimental-logging",
@@ -63,8 +79,6 @@ class Log_Perturb_Means(OptimizerChain):
                 job_type="experimental-debug",
                 tags=["debug", "actor-logs"]
             )
-        if do_log == False:
-            return
         if "perturb_buffer" not in state:
             raise ValueError("Perturbation buffer does not exist to log?")
         if "step" not in state:
@@ -79,11 +93,22 @@ class Log_Perturb_Means(OptimizerChain):
             table = wandb.Table(columns=["step", "value", "parameter_id"])
             data = {"start": parameter_id, "logged_at_step":False, "data": table}
             state[key] = data
-        if step-1 in self.log_at:
+        if step - 1 in self.log_at:
             if data["logged_at_step"] == False:
                 data["logged_at_step"] = True
                 logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
-                wandb.log({f"misc/{self.source}": logged_table})
+                df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
+                fig = px.scatter(
+                    df, 
+                    x="step", 
+                    y="value", 
+                    color="parameter_id",
+                    title=f"Perturbation Means: {self.source}"
+                )
+                wandb.log({
+                    f"misc/{self.source}": logged_table,
+                    f"misc/{self.source}_plot": fig
+                })
         else:
             data["logged_at_step"] = False
         mean = torch.mean(state["perturb_buffer"], dtype=torch.float32).item()
@@ -96,6 +121,8 @@ class Log_Perturb_Variances(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if do_log == False:
+            return
         if wandb.run is None:
             wandb.init(
                 project="propagate-experimental-logging",
@@ -103,8 +130,6 @@ class Log_Perturb_Variances(OptimizerChain):
                 job_type="experimental-debug",
                 tags=["debug", "actor-logs"]
             )
-        if do_log == False:
-            return
         if "perturb_buffer" not in state:
             raise ValueError("Perturbation buffer does not exist to log?")
         if "step" not in state:
@@ -119,11 +144,22 @@ class Log_Perturb_Variances(OptimizerChain):
             table = wandb.Table(columns=["step", "value", "parameter_id"])
             data = {"start": parameter_id, "logged_at_step":False, "data": table}
             state[key] = data
-        if step-1 in self.log_at:
+        if step - 1 in self.log_at:
             if data["logged_at_step"] == False:
                 data["logged_at_step"] = True
                 logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
-                wandb.log({f"misc/{self.source}": logged_table})
+                df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
+                fig = px.scatter(
+                    df, 
+                    x="step", 
+                    y="value", 
+                    color="parameter_id",
+                    title=f"Perturbation Variances: {self.source}"
+                )
+                wandb.log({
+                    f"misc/{self.source}": logged_table,
+                    f"misc/{self.source}_plot": fig
+                })
         else:
             data["logged_at_step"] = False
         var = torch.var(state["perturb_buffer"]).item()
@@ -136,6 +172,8 @@ class Log_RMSProp_Norms(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if do_log == False:
+            return
         if wandb.run is None:
             wandb.init(
                 project="propagate-experimental-logging",
@@ -143,8 +181,6 @@ class Log_RMSProp_Norms(OptimizerChain):
                 job_type="experimental-debug",
                 tags=["debug", "actor-logs"]
             )
-        if do_log == False:
-            return
         if "step" not in state:
             print("Step not received, the logger won't function!")
         step = state["step"]
@@ -157,11 +193,22 @@ class Log_RMSProp_Norms(OptimizerChain):
                 table = wandb.Table(columns=["step", "value", "parameter_id"])
                 data = {"start": parameter_id, "logged_at_step":False, "data": table}
                 state[key] = data
-            if step-1 in self.log_at:
+            if step - 1 in self.log_at:
                 if data["logged_at_step"] == False:
                     data["logged_at_step"] = True
                     logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
-                    wandb.log({f"misc/{self.source}": logged_table})
+                    df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
+                    fig = px.scatter(
+                        df, 
+                        x="step", 
+                        y="value", 
+                        color="parameter_id",
+                        title=f"RMSProp Norms: {self.source}"
+                    )
+                    wandb.log({
+                        f"misc/{self.source}": logged_table,
+                        f"misc/{self.source}_plot": fig
+                    })
             else:
                 data["logged_at_step"] = False
             norms = state[(parameter_id, "rmsprop_block")]
@@ -174,11 +221,22 @@ class Log_RMSProp_Norms(OptimizerChain):
                 table = wandb.Table(columns=["step", "value", "parameter_id"])
                 data = {"start": parameter_id, "logged_at_step":False, "data": table}
                 state[key] = data
-            if step-1 in self.log_at:
+            if step - 1 in self.log_at:
                 if data["logged_at_step"] == False:
                     data["logged_at_step"] = True
                     logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
-                    wandb.log({f"misc/{self.source}": logged_table})
+                    df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
+                    fig = px.scatter(
+                        df, 
+                        x="step", 
+                        y="value", 
+                        color="parameter_id",
+                        title=f"RMSProp Norms: {self.source}"
+                    )
+                    wandb.log({
+                        f"misc/{self.source}": logged_table,
+                        f"misc/{self.source}_plot": fig
+                    })
             else:
                 data["logged_at_step"] = False
             norms = torch.linalg.vector_norm(state[(parameter_id, "rmsprop")], dtype=torch.float32).item()
