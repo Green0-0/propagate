@@ -47,11 +47,12 @@ class Log_Perturb_Norms(OptimizerChain):
                 data["logged_at_step"] = True
                 logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
                 df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
-                fig = px.scatter(
+                fig = px.line(
                     df, 
                     x="step", 
                     y="value", 
                     color="parameter_id",
+                    markers=True,
                     title=f"Perturbation Norms: {self.source}"
                 )
                 wandb.log({
@@ -98,11 +99,12 @@ class Log_Perturb_Means(OptimizerChain):
                 data["logged_at_step"] = True
                 logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
                 df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
-                fig = px.scatter(
+                fig = px.line(
                     df, 
                     x="step", 
                     y="value", 
                     color="parameter_id",
+                    markers=True,
                     title=f"Perturbation Means: {self.source}"
                 )
                 wandb.log({
@@ -149,11 +151,12 @@ class Log_Perturb_Variances(OptimizerChain):
                 data["logged_at_step"] = True
                 logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
                 df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
-                fig = px.scatter(
+                fig = px.line(
                     df, 
                     x="step", 
                     y="value", 
                     color="parameter_id",
+                    markers=True,
                     title=f"Perturbation Variances: {self.source}"
                 )
                 wandb.log({
@@ -198,11 +201,12 @@ class Log_RMSProp_Norms(OptimizerChain):
                     data["logged_at_step"] = True
                     logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
                     df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
-                    fig = px.scatter(
+                    fig = px.line(
                         df, 
                         x="step", 
                         y="value", 
                         color="parameter_id",
+                        markers=True,
                         title=f"RMSProp Norms: {self.source}"
                     )
                     wandb.log({
@@ -226,11 +230,12 @@ class Log_RMSProp_Norms(OptimizerChain):
                     data["logged_at_step"] = True
                     logged_table = wandb.Table(columns=data["data"].columns, data=data["data"].data)
                     df = pd.DataFrame(data=data["data"].data, columns=data["data"].columns)
-                    fig = px.scatter(
+                    fig = px.line(
                         df, 
                         x="step", 
                         y="value", 
                         color="parameter_id",
+                        markers=True,
                         title=f"RMSProp Norms: {self.source}"
                     )
                     wandb.log({
