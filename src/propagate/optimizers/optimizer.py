@@ -4,7 +4,7 @@ from typing import Dict, List
 import torch
 
 from propagate.genome import Genome
-from propagate.optimizers.chain import Sub_Perturb_Buffer, Add_Perturb_Buffer
+from propagate.optimizers.chain import OptimizerChain, Sub_Perturb_Buffer, Add_Perturb_Buffer
 import math
 
 class Optimizer():

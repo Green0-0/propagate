@@ -16,6 +16,13 @@ class Log_Perturb_Norms(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if wandb.run is None:
+            wandb.init(
+                project="propagate-experimental-logging",
+                name="debug-actor-perturb-norm", 
+                job_type="experimental-debug",
+                tags=["debug", "actor-logs"]
+            )
         if do_log == False:
             return
         if "perturb_buffer" not in state:
@@ -49,6 +56,13 @@ class Log_Perturb_Means(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if wandb.run is None:
+            wandb.init(
+                project="propagate-experimental-logging",
+                name="debug-actor-perturb-mean", 
+                job_type="experimental-debug",
+                tags=["debug", "actor-logs"]
+            )
         if do_log == False:
             return
         if "perturb_buffer" not in state:
@@ -82,6 +96,13 @@ class Log_Perturb_Variances(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if wandb.run is None:
+            wandb.init(
+                project="propagate-experimental-logging",
+                name="debug-actor-perturb-var", 
+                job_type="experimental-debug",
+                tags=["debug", "actor-logs"]
+            )
         if do_log == False:
             return
         if "perturb_buffer" not in state:
@@ -115,6 +136,13 @@ class Log_RMSProp_Norms(OptimizerChain):
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
+        if wandb.run is None:
+            wandb.init(
+                project="propagate-experimental-logging",
+                name="debug-actor-rmsprop-norm", 
+                job_type="experimental-debug",
+                tags=["debug", "actor-logs"]
+            )
         if do_log == False:
             return
         if "step" not in state:
