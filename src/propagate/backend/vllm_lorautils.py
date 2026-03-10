@@ -427,11 +427,11 @@ class WorkerExtension:
                     self._norm_cache[cache_key] = layer_norm_scale
 
                 if "a" in target.lower():
-                    optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, id, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, layer_name, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                     rand_counter += 1
                     
                 if "b" in target.lower():
-                    optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, id, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, layer_name, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                     rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
@@ -479,11 +479,11 @@ class WorkerExtension:
                         raise RuntimeError("Normalization cache not found during restore.")
                     
                     if "a" in target.lower():
-                        optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, id, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                        optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, layer_name, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                         rand_counter += 1
                         
                     if "b" in target.lower():
-                        optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, id, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                        optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, layer_name, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                         rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()

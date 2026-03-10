@@ -79,7 +79,7 @@ class WorkerExtension:
         if not hasattr(self, 'rank'):
             self.rank = 0
         rand_counter = 0
-        for _, p in self.model_runner.model.named_parameters():
+        for id, p in self.model_runner.model.named_parameters():
             optimizer.apply_perturb(genome, p.data, rand_counter, id, invert = True, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
             rand_counter += 1
         if torch.cuda.is_available():

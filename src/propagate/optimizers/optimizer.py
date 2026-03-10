@@ -92,7 +92,7 @@ class Optimizer():
         # Calculate reward statistics for normalization (if enabled)
         rewards = [g.historical_rewards[-1] for g in genomes]
         reward_mean = sum(rewards) / len(genomes)
-        self.rstd = (sum([(r - reward_mean) ** 2 for r in rewards]) / len(genomes)) ** 0.5
+        self.last_rstd = (sum([(r - reward_mean) ** 2 for r in rewards]) / len(genomes)) ** 0.5
 
         # Build representative genome from a combination of old seeds (history) and new seeds (gradients)
         new_seeds = {}

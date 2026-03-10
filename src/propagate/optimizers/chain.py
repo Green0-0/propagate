@@ -62,7 +62,7 @@ class Sub_Perturb_Buffer(OptimizerChain):
         if "perturb_buffer" not in state:
             raise ValueError("State dict is missing the perturbation to commit.")
         perturbation = state["perturb_buffer"]
-        tensor.add_(perturbation.to(tensor.dtype))
+        tensor.sub_(perturbation.to(tensor.dtype))
 
 class Delete_Perturb_Buffer(OptimizerChain):
     @torch.no_grad()
