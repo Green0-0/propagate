@@ -23,7 +23,7 @@ try:
 
     perturb_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True, mul_by_lr_scalar=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
     update_chain = [chain.Init_Perturbation_Gaussian(), chain_log.Log_Perturb_Norms(), chain_log.Log_Perturb_Means(), chain_log.Log_Perturb_Variances(), chain_adam.OC_Compute_RMSProp_Blockwise(force_init_value=0.0004), chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, mul_by_std=True, mul_by_lr_scalar=True, div_by_rmsprop_block=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer(), chain_log.Log_RMSProp_Means()]
-    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=25, perturb_scale=0.001 / 50, mirror=True, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False, rank_norm_rewards=False)
+    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=25, perturb_scale=0.001 / 50, mirror=True, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False, rank_norm_rewards=False, warmup_steps=5)
 
     trainer = SimpleTrainer(mirror=True,
                             optimizer=optimizer,
