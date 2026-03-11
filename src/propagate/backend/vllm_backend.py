@@ -212,7 +212,7 @@ class VLLMBackend(Backend):
                 prompt_set = next(ds)
             except StopIteration:
                 break
-            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer,)))
+            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer, False)))
             handle, start_ts = self.evaluate_countdown_handle(llm, prompt_set)
             inflight[handle] = {"engine": llm, "engine_idx": eng_idx, "genome": genome, "start_ts": start_ts}
 
@@ -231,13 +231,13 @@ class VLLMBackend(Backend):
 
             # Restore weights and schedule next generation
             llm = meta["engine"]
-            ray.get(llm.collective_rpc.remote("restore_self_weights", args=(genome, optimizer,)))
+            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer, True)))
             try:
                 genome = next(gs)
                 prompts_set = next(ds)
             except StopIteration:
                 continue
-            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer,)))
+            ray.get(llm.collective_rpc.remote("perturb_self_weights", args=(genome, optimizer, False)))
             handle, start_ts = self.evaluate_countdown_handle(llm, prompts_set)
             inflight[handle] = {"engine": llm, "engine_idx": meta["engine_idx"], "genome": genome, "start_ts": start_ts}
             if self.time_self:

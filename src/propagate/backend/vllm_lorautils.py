@@ -381,9 +381,9 @@ class WorkerExtension:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
-
+        
     @torch.inference_mode()
-    def perturb_self_weights_multi(self, genomes: List[Genome], optimizer: Optimizer, target: str):
+    def perturb_self_weights_multi(self, genomes: List[Genome], optimizer: Optimizer, target: str, invert: bool):
         """Perturb the LoRA weights using the provided genomes.
         Maps each genome to an adapter and applies perturbations.
         
@@ -406,8 +406,11 @@ class WorkerExtension:
         if len(genomes) > len(sorted_adapters):
             raise ValueError(f"Received {len(genomes)} genomes but only {len(sorted_adapters)} adapters are available.")
         
-        self._norm_cache = {} 
         eps = 1e-5
+        if not invert:
+            self._norm_cache = {} 
+        elif not hasattr(self, '_norm_cache'):
+            raise RuntimeError("Normalization cache not found during restore.")
         for i, genome in enumerate(genomes):
             aid, _ = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
@@ -418,73 +421,20 @@ class WorkerExtension:
                 cache_key = (aid, layer_name)
                 if cache_key in self._norm_cache:
                     layer_norm_scale = self._norm_cache[cache_key]
-                else:
+                elif not invert:
                     norm_a = torch.norm(lora_a)
                     norm_b = torch.norm(lora_b)
                     combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
-                    
                     layer_norm_scale = 1.0 / (combined_norm + eps)
                     self._norm_cache[cache_key] = layer_norm_scale
-
+                else:
+                    raise RuntimeError(f"Normalization cache value for tensor {str(aid, layer_name)} was missing!.")
                 if "a" in target.lower():
-                    optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, layer_name, "a"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    optimizer.apply_perturb(invert, genome, lora_a.data, rand_counter, (aid, layer_name, "a"), state, lr_scalar=float(layer_norm_scale), do_log=self.rank == 0)
                     rand_counter += 1
-                    
                 if "b" in target.lower():
-                    optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, layer_name, "b"), False, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    optimizer.apply_perturb(invert, genome, lora_b.data, rand_counter, (aid, layer_name, "b"), state, lr_scalar=float(layer_norm_scale), do_log=self.rank == 0)
                     rand_counter += 1
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-
-    @torch.inference_mode()
-    def restore_self_weights_multi(self, genomes: List[Genome], optimizer: Optimizer, target: str):
-        """Restore the LoRA weights by removing the perturbations.
-        
-        Args:
-            genomes (List[Genome]): The list of genomes to revert.
-            target (str): The target matrices to revert ("a", "b", or both).
-        """
-        if not hasattr(self, 'optimizer_state_per_adapter'):
-            self.optimizer_state_per_adapter = {}
-        if not hasattr(self, 'rank'):
-            self.rank = 0
-            
-        lora_manager = self.model_runner.lora_manager
-        adapter_manager = lora_manager._adapter_manager
-
-        adapters_dict = adapter_manager.list_adapters()
-        modules = adapter_manager.modules
-
-        sorted_adapters = sorted(adapters_dict.items(), key=lambda x: x[0])
-
-        if len(genomes) > len(sorted_adapters):
-            raise ValueError(
-                f"Received {len(genomes)} genomes but only {len(sorted_adapters)} adapters are available."
-            )
-
-        for i, genome in enumerate(genomes):
-            aid, _lora_model = sorted_adapters[i]
-            weights = self._collect_gpu_lora_tensors(aid)
-            state = self.optimizer_state_per_adapter[aid]
-            
-            for seed, weight in zip(genome.seeds, genome.perturb_scales):
-                rand_counter = 0
-
-                for layer_name, (lora_a, lora_b) in sorted(weights.items()):
-                    cache_key = (aid, layer_name)
-                    if hasattr(self, '_norm_cache') and cache_key in self._norm_cache:
-                        layer_norm_scale = self._norm_cache[cache_key]
-                    else:
-                        raise RuntimeError("Normalization cache not found during restore.")
-                    
-                    if "a" in target.lower():
-                        optimizer.apply_perturb(genome, lora_a.data, rand_counter, (aid, layer_name, "a"), True, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
-                        rand_counter += 1
-                        
-                    if "b" in target.lower():
-                        optimizer.apply_perturb(genome, lora_b.data, rand_counter, (aid, layer_name, "b"), True, lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
-                        rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()

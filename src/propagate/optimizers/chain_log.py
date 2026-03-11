@@ -10,6 +10,20 @@ import pandas as pd
 import plotly.express as px
 
 class Log_Perturb_Norms(OptimizerChain):
+    """
+    Logs seperate L2 norms of the perturbation buffer for each tensor to WandB as a table and plotly line plot. 
+    Note that the perturbation buffer can mean different things and be scaled in different ways at different points in the optimizer chain.
+    The norm is very biased by the size of the parameter, so it is preferred to use the mean instead.
+
+    Warning: This will create a seperate WandB project called 'propagate-experimental-logging', as the vllm actor cannot access the main thread.
+
+    Attributes
+    ----------
+    source : str
+        The name of the source to log.
+    log_at : List[int]
+        The steps at which to log.
+    """
     # Note: This logs a scatterplot of hundreds of tensors per step id'd by their parameter id
     # Do log should only be True on rank zero
     # Also, your log_at value should terminate one step before the final step or it won't execute
@@ -65,6 +79,20 @@ class Log_Perturb_Norms(OptimizerChain):
         data["data"].add_data(step, norms, str(parameter_id))
         
 class Log_Perturb_Means(OptimizerChain):
+    """
+    Logs seperate means of the perturbation buffer for each tensor to WandB as a table and plotly line plot. 
+    Note that the perturbation buffer can mean different things and be scaled in different ways at different points in the optimizer chain.
+    The mean of the gradient should be nonzero as it should exhibit some kind of bias. If the mean is extremely small then the gradient must be extremely small. Furthermore, if the mean changes largely per tensor, then the tensors are receiving different amounts of signal.
+
+    Warning: This will create a seperate WandB project called 'propagate-experimental-logging', as the vllm actor cannot access the main thread.
+
+    Attributes
+    ----------
+    source : str
+        The name of the source to log.
+    log_at : List[int]
+        The steps at which to log.
+    """
     def __init__(self, source = "perturbation_means", log_at = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
@@ -117,6 +145,22 @@ class Log_Perturb_Means(OptimizerChain):
         data["data"].add_data(step, mean, str(parameter_id))
     
 class Log_Perturb_Variances(OptimizerChain):
+    """
+    Logs seperate variances of the perturbation buffer for each tensor to WandB as a table and plotly line plot. 
+    Note that the perturbation buffer can mean different things and be scaled in different ways at different points in the optimizer chain.
+    Note that this is the variance of a parameter and not the variance of the ES optimizer.
+    If the variance is high, it indicates that some weights within a torch parameter are receiving large values, while others are receiving small values. However, these could also be exploding outliers.
+    If the variance is tiny then the whole gradient is extremely homogonous which would be very strange.
+
+    Warning: This will create a seperate WandB project called 'propagate-experimental-logging', as the vllm actor cannot access the main thread.
+
+    Attributes
+    ----------
+    source : str
+        The name of the source to log.
+    log_at : List[int]
+        The steps at which to log.
+    """
     def __init__(self, source = "perturbation_variances", log_at = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
@@ -168,7 +212,22 @@ class Log_Perturb_Variances(OptimizerChain):
         var = torch.var(state["perturb_buffer"]).item()
         data["data"].add_data(step, var, str(parameter_id))
         
-class Log_RMSProp_Norms(OptimizerChain):
+class Log_RMSProp_Means(OptimizerChain):
+    """
+    Logs seperate means of the RMSProp buffer for each tensor to WandB as a table and plotly line plot. 
+    Remember that RMSProp does preconditioning, meaning the value should NOT be the same for each tensor. However, it should be consistent between steps, and if it isn't that means your optimization path isn't stable.
+
+    Works with both blockwise RMSProp and full RMSProp, but does not work with seeded RMSProp as that would require regenerating the RMSProp buffer.
+    
+    Warning: This will create a seperate WandB project called 'propagate-experimental-logging', as the vllm actor cannot access the main thread.
+
+    Attributes
+    ----------
+    source : str
+        The name of the source to log.
+    log_at : List[int]
+        The steps at which to log.
+    """
     def __init__(self, source = "rmsprop_norms", log_at = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
@@ -244,5 +303,5 @@ class Log_RMSProp_Norms(OptimizerChain):
                     })
             else:
                 data["logged_at_step"] = False
-            norms = torch.linalg.vector_norm(state[(parameter_id, "rmsprop")], dtype=torch.float32).item()
+            norms = torch.mean(state[(parameter_id, "rmsprop")], dtype=torch.float32).item()
             data["data"].add_data(step, norms, str(parameter_id))

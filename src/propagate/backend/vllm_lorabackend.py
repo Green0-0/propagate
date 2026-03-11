@@ -24,7 +24,7 @@ import shutil
 import tempfile
 import gc
 
-from propagate.optimizers import Optimizer
+from propagate.optimizers.optimizer import Optimizer
 
 class VLLMBackendLoRA(Backend):
     """The vLLM backend with LoRA support. Uses Ray to spawn vLLM workers and distribute inference across them.
@@ -257,7 +257,7 @@ class VLLMBackendLoRA(Backend):
         ray.get([pg.ready() for pg in pgs])
         strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
         
-        self.population_size = trainer.population_size
+        self.population_size = trainer.optimizer.population_size
         if trainer.mirror:
             self.population_size = self.population_size * 2
         max_loras_per_worker = math.ceil(self.population_size / self.NUM_GPUS)
@@ -443,7 +443,7 @@ class VLLMBackendLoRA(Backend):
                 continue
                 
             h = llm.collective_rpc.remote(
-                "perturb_self_weights_multi", args=(my_genomes.tolist(), optimizer, self.lora_perturb_target,)
+                "perturb_self_weights_multi", args=(my_genomes.tolist(), optimizer, self.lora_perturb_target, False)
             )
             perturb_handles.append(h)
         ray.get(perturb_handles)
@@ -499,7 +499,7 @@ class VLLMBackendLoRA(Backend):
             
             if len(my_genomes) > 0:
                 h = llm.collective_rpc.remote(
-                    "restore_self_weights_multi", args=(my_genomes.tolist(), optimizer, self.lora_perturb_target,)
+                    "perturb_self_weights_multi", args=(my_genomes.tolist(), optimizer, self.lora_perturb_target, True)
                 )
                 restore_handles.append(h)
         

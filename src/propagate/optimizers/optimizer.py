@@ -8,11 +8,18 @@ from propagate.optimizers.chain import OptimizerChain, Sub_Perturb_Buffer, Add_P
 import math
 
 class Optimizer():
-    """TODO: Update
+    """
+    The optimizer is responsibly for orchestrating the model update. It contains the hyperparameters, and the manner in which perturbations/gradients are applied to the model. 
+
+    It works by internally updating and calculating a "representative genome" (update_self) which stores a list of seeds which are reweighted and represent a gradient. This is done right after genines are evaluated, using the new reward data.
+
+    It stores three optimizer paths: one calculates the perturbation (perturb_chain), one reverses the perturbation to get the original model (inverted_perturb_chain), and one applies the gradient update (update_chain).
+
+    Note that vLLM workers (ray actors) cannot update the global optimizer state, and as such, the state is passed to and updated by the vLLM worker through the state dictionary.
+
+    Basic behavior for saving the model and restoring it from a checkpoint is also provided (get_update_history and restore_from_history). However, be warned that the optimizer state will not be restored.
     
-    Optimizers are responsible for maintaining the learning rate, perturb scale, and other parameters necessary for updating the model. They also contain the behavior to calculate the gradient using stored genome statistics (update_self) and apply it from the backend (step_update). Some optimizers may function without appying the gradient to the backend, simply by maintaining a representative genome (get_representative). Basic behavior for saving the model and restoring it from a checkpoint is also provided (get_update_history and restore_from_history).
-    
-    Warning: The optimizer supports both stateful genomes (which maintain their historic seeds), and stateless genomes (where the updates are baked into the backend). However, the stateful genomes do not work with weight updates, meaning you should never call apply_grad.
+    Warning: The optimizer supports both stateful genomes (which maintain their historic seeds), and stateless genomes (where the updates are baked into the backend). However, the stateful genomes do not work with weight updates, meaning you should never call apply_grad. You MUST setup your pipeline so that the training works solely through apply_perturb with cached seeds.
 
     Attributes
     ----------
@@ -24,19 +31,30 @@ class Optimizer():
         The learning rate of the optimizer.
     perturb_scale : float
         The scale of the perturbation (sigma).
+    population_size : int
+        The number of genomes evaluated per step during optimization.
     warmup_steps : int
         The number of warmup steps.
+    perturb_chain : List[OptimizerChain]
+        The optimizer path for perturbation.
+    update_chain : List[OptimizerChain]
+        The optimizer path for updating the model.
+    inverted_perturb_chain : List[OptimizerChain]
+        The optimizer path for reversing the perturbation. Automatically generated if not provided.
     scheduler : str
         The learning rate scheduler to use.
     norm_by_mean : bool
-        Whether to normalize the gradient by the mean reward. This is required for non-mirrored training.
+        Whether to normalize the gradient by the mean reward. This is required for non-mirrored training, but may cause issues during mirrored training.
+    rank_norm_rewards : bool
+        Whether to normalize the rewards by rank. For example, the worse genome becomes -0.5, the next genome is -0.4, and the best is 0.5.
     """
-    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, population_size: int, perturb_chain: List[OptimizerChain], update_chain: List[OptimizerChain], inverted_perturb_chain: List[OptimizerChain] = None, warmup_steps: int = 0, scheduler: str = "none", norm_by_mean: bool = True, rank_norm_rewards: bool = True):
+    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, population_size: int, mirror: bool, perturb_chain: List[OptimizerChain], update_chain: List[OptimizerChain], norm_by_mean: bool, rank_norm_rewards: bool, inverted_perturb_chain: List[OptimizerChain] = None, warmup_steps: int = 0, scheduler: str = "none"):
         self.optimizer_name = optimizer_name
         self.total_steps = total_steps
         self.learning_rate = learning_rate
         self.perturb_scale = perturb_scale
         self.population_size = population_size
+        self.mirror = mirror
         
         self.last_lr = learning_rate
         self.last_step = 1
@@ -66,7 +84,14 @@ class Optimizer():
         self.update_history = []
     
     def get_lr(self, current_step: int) -> float:
-        """Returns the learning rate based on the current step, applying the warmup and scheduler."""
+        """
+        Returns the learning rate based on the current step, applying the warmup and scheduler.
+
+        Args:
+            current_step (int): The current step of the optimizer.
+        Returns:
+            float: The learning rate.
+        """
         if self.warmup_steps > 0 and current_step < self.warmup_steps:
             return self.learning_rate * (current_step / self.warmup_steps)
 
@@ -84,7 +109,17 @@ class Optimizer():
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
     
     def update_self(self, genomes: List[Genome], current_step: int):
-        """Updates the optimizer's internal state based on the provided genomes (assumed to have rewards calculated) and current step. Begins by calculating the population mean and standard deviation from the rewards, which is used to create the update scale with the lr. Then, builds a representative genome (which represents the new state of the model) by iterating through the current genomes seeds. If a seed is part of a previous gradient step, it is copied over (duplicates should be averaged), otherwise it is considered a direction of the gradient and scaled by the reward."""
+        """
+        Update the optimizer's internal state based on the provided genomes.
+
+        Based on the given rewards and hyperparameter config (norm_by_mean, rank_norm_rewards), calculates the gradient as a linear combination of the seeds of the given genomes. This gradient is packed into a new representative genome and saved.
+
+        In the event there are historical seeds, seeds that are part of a previous gradient step are copied over with duplicates averaged.
+        
+        Args:
+            genomes (List[Genome]): The genomes to update the optimizer with. These genomes MUST have their rewards calculated, or the update will become corrupted.
+            current_step (int): The current step of the optimizer.
+        """
         self.rep_genome = Genome()
         self.last_step = current_step
         self.last_lr = self.get_lr(current_step)
@@ -143,7 +178,21 @@ class Optimizer():
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
         self.update_history.append(copy.deepcopy(self.rep_genome))
 
-    def apply_perturb(self, genome: Genome, tensor: torch.Tensor, random_offset: int, parameter_id, invert, lr_scalar: float = 1, state: Dict = None, do_log: bool = False):
+    def apply_perturb(self, invert, genome: Genome, tensor: torch.Tensor, random_offset: int, parameter_id, state: Dict, lr_scalar: float = 1, do_log: bool = False):
+        """
+        Apply the perturbation to the given genome. This must be called INTERNALLY through vLLM, and should never be used outside of a vLLM worker.
+
+        Args:
+            genome (Genome): The genome to apply the perturbation with.
+            tensor (torch.Tensor): The tensor to apply the perturbation to.
+            random_offset (int): The random offset to apply to the perturbation. This is used to keep perturbations on different tensors I.I.D. Make sure the same tensor gets the same random offset.
+            parameter_id (int): The parameter ID, to track parameter-specific states like RMSProp buffers.
+            invert (bool): Whether to invert the perturbation. If true, applies the inverted perturbation chain.
+            state (Dict): The state which stores the optimizer state.
+            lr_scalar (float, optional): A generic scalar. Defaults to 1. May be used to scale the update from the backend.
+            do_log (bool, optional): Used to force only rank 0 (gpu 0) to log, for very special logs such as grad norms.
+        """
+        # Setup state variables from optimizer global state
         state["step"] = self.last_step
         state["lr"] = self.last_lr
         state["std"] = self.perturb_scale
@@ -152,13 +201,27 @@ class Optimizer():
         state["lr_scalar"] = lr_scalar
         
         if invert:
+            # Restore from perturbation
             for p in self.inverted_perturb_chain:
                 p.apply(genome, state, parameter_id, tensor, random_offset, do_log)
         else:
+            # Apply perturbation
             for p in self.perturb_chain:
                 p.apply(genome, state, parameter_id, tensor, random_offset, do_log)
     
-    def apply_grad(self, tensor: torch.Tensor, random_offset: int, parameter_id, lr_scalar: float = 1, state: Dict = None, do_log: bool = False):
+    def apply_grad(self, tensor: torch.Tensor, random_offset: int, parameter_id, state: Dict, lr_scalar: float = 1, do_log: bool = False):
+        """
+        Apply the gradient to the given tensor. This must be called INTERNALLY through vLLM, and should never be used outside of a vLLM worker.
+
+        Args:
+            tensor (torch.Tensor): The tensor to apply the gradient to.
+            random_offset (int): The random offset to apply to the gradient.
+            parameter_id (int): The parameter ID to apply the gradient to.
+            lr_scalar (float, optional): The learning rate scalar. Defaults to 1.
+            state (Dict, optional): The state to apply the gradient to. Defaults to None.
+            do_log (bool, optional): Whether to log the gradient. Defaults to False.
+        """
+        # Setup state variables from optimizer global state
         state["step"] = self.last_step
         state["lr"] = self.last_lr
         state["std"] = self.perturb_scale
@@ -166,10 +229,12 @@ class Optimizer():
         state["population_size"] = self.population_size
         state["lr_scalar"] = lr_scalar
         
+        # Apply gradient update
         for p in self.update_chain:
             p.apply(self.rep_genome, state, parameter_id, tensor, random_offset, do_log)
             
     def get_representative(self) -> Genome:
+        """Returns the representative genome."""
         return self.rep_genome
     
     def get_update_history(self) -> List[Genome]:
@@ -177,9 +242,13 @@ class Optimizer():
         return self.update_history
     
     def restore_from_history(self, history, backend):
-        """Restores the latest genome's state by tracing the updates from the representative genomes in the provided history. 
+        """Restores the latest genome's state by tracing the updates from the representative genomes in the provided history. The genome is restored into the backend, meaning that the backend's weights will be modified.
         
-        WARNING: Will not restore the optimizer state."""
+        WARNING: Will not restore the optimizer state.
+        
+        Args:
+            history (List[Genome]): The history to restore from.
+            backend (Backend): The backend to use for restoring the genome."""
         self.update_history = copy.deepcopy(history)
         for step_genome in history:
             self.rep_genome = step_genome

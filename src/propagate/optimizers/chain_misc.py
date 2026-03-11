@@ -6,6 +6,15 @@ from typing import Dict
 import torch
 
 class OC_Muon_Whiten_Perturb_Buffer(OptimizerChain):
+    """Whitens the perturbation buffer using Newton-Schulz iterations. 
+    
+    Note that Muon also contains momentum.
+    
+    Attributes
+    ----------
+    force_bf16 : bool
+        Whether to force bfloat16 for the iterations (recommended).
+    """
     def __init__(self, force_bf16 = True) -> None:
         self.force_bf16 = force_bf16
         
@@ -37,7 +46,10 @@ class OC_Muon_Whiten_Perturb_Buffer(OptimizerChain):
             self.newtonschulz5(perturbation)
             
 class OC_Manifold_Project(OptimizerChain): 
-    """NOTE: T MUST BE POSITIVE!"""       
+    """Projects the perturbation buffer onto the manifold using Sinkhorn-Knopp. Might be useful if a model with Deepseek MHC is ever introduced.
+    
+    WARNING: THE INPUT TENSOR MUST BE POSITIVE!
+    """       
     def sinkhorn_knopp(self, T: torch.Tensor, steps = 20, eps=1e-5):
         assert T.ndim == 2
         assert (T >= 0).all(), "Sinkhorn input must be strictly positive."
@@ -54,6 +66,13 @@ class OC_Manifold_Project(OptimizerChain):
             self.sinkhorn_knopp(perturbation)
 
 class Probabilistic_Zero_Perturb_Buffer(OptimizerChain):
+    """Zeroes the perturbation buffer with a certain probability. Might stabilize gradient updates by only updating portions of the network.
+
+    Attributes
+    ----------
+    probability_to_zero : float
+        The probability to zero the buffer.
+    """
     def __init__(self, probability_to_zero = 0.5):
         self.probability_to_zero = probability_to_zero
         
@@ -66,6 +85,15 @@ class Probabilistic_Zero_Perturb_Buffer(OptimizerChain):
             perturbation.zero_()
         
 class Direct_Weight_Decay(OptimizerChain):
+    """Applies weight decay directly to the tensor.
+    
+    Attributes
+    ----------
+    lambda_val : float
+        The weight decay coefficient.
+    exponent : float
+        The exponent to use for the weight decay.
+    """
     def __init__(self, lambda_val = 0.0001, exponent=0.5) -> None:
         self.lambda_val = lambda_val
         self.exponent = exponent
@@ -78,3 +106,4 @@ class Direct_Weight_Decay(OptimizerChain):
         
 # todo?: Variance/std calculation on independent seeds to squeeze certain parts of the gradient which are noisy/have low confidence
 # a statistical optimizer could be useful...
+# cautious optimizers? Magma? Laprop? Apollo?

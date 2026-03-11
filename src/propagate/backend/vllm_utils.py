@@ -40,14 +40,14 @@ class WorkerExtension:
             self.rank = 0
         rand_counter = 0
         for id, p in self.model_runner.model.named_parameters():                
-            optimizer.apply_grad(p.data, rand_counter, id, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
+            optimizer.apply_grad(p.data, rand_counter, id, self.optimizer_state, do_log=self.rank == 0)
             rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def perturb_self_weights(self, genome: Genome, optimizer: Optimizer):
+    def perturb_self_weights(self, genome: Genome, optimizer: Optimizer, invert: bool):
         """Perturb the model's weights using the provided genome.
         Iterates through the genome's seeds and perturb scales, generating noise and adding it to the weights.
         
@@ -60,27 +60,7 @@ class WorkerExtension:
             self.rank = 0
         rand_counter = 0
         for id, p in self.model_runner.model.named_parameters():
-            optimizer.apply_perturb(genome, p.data, rand_counter, id, invert = False, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
-            rand_counter += 1
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-
-    @torch.inference_mode()
-    def restore_self_weights(self, genome: Genome, optimizer: Optimizer):
-        """Restore the model's weights by removing the perturbations introduced by the genome.
-        Essentially replicates the perturbation process but subtracts the noise instead of adding it.
-        
-        Args:
-            genome (Genome): The genome containing the seeds and scales to reverse.
-        """
-        if not hasattr(self, 'optimizer_state'):
-            self.optimizer_state = {}
-        if not hasattr(self, 'rank'):
-            self.rank = 0
-        rand_counter = 0
-        for id, p in self.model_runner.model.named_parameters():
-            optimizer.apply_perturb(genome, p.data, rand_counter, id, invert = True, lr_scalar=float(1.0), state=self.optimizer_state, do_log=self.rank == 0)
+            optimizer.apply_perturb(invert, genome, p.data, rand_counter, id, self.optimizer_state, do_log=self.rank == 0)
             rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()

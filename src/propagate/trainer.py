@@ -58,7 +58,7 @@ class SimpleTrainer:
         
         self.genomes = [Genome() for _ in range(optimizer.population_size)]
         for genome in self.genomes:
-            genome.mutate_seed(optimizer.perturb_scale)
+            genome.mutate_seed(1)
         if mirror:
             mirrored_genomes = []
             for genome in self.genomes:
@@ -159,7 +159,7 @@ class SimpleTrainer:
             # Create next generation of genomes
             self.genomes = [Genome() for _ in range(self.optimizer.population_size)]
             for genome in self.genomes:
-                genome.mutate_seed(self.optimizer.perturb_scale)
+                genome.mutate_seed(1)
             if self.mirror:
                 mirrored_genomes = []
                 for genome in self.genomes:
