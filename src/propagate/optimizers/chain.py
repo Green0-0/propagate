@@ -103,7 +103,7 @@ class Copy_Weights_To_Perturb_Buffer(OptimizerChain):
     cast_type : torch.dtype
         The data type to cast the weights to.
     """
-    def __init__(self, cast_type = torch.bfloat16) -> None:
+    def __init__(self, cast_type: torch.dtype = torch.bfloat16) -> None:
         self.cast_type = cast_type
         
     @torch.no_grad()
@@ -129,7 +129,7 @@ class Init_Perturbation_Gaussian(OptimizerChain):
     fp32_accumulate : bool
         Whether to accumulate the noise in float32.
     """
-    def __init__(self, fp32_accumulate = True):
+    def __init__(self, fp32_accumulate: bool = True):
         self.fp32_accumulate = fp32_accumulate
         
     @torch.no_grad()
@@ -157,7 +157,7 @@ class Init_Perturbation_Bernoulli(OptimizerChain):
     fp32_accumulate : bool
         Whether to accumulate the noise in float32.
     """
-    def __init__(self, center=0.5, fp32_accumulate = True):
+    def __init__(self, center: float = 0.5, fp32_accumulate: bool = True):
         self.center = center
         self.fp32_accumulate = fp32_accumulate        
     
@@ -201,7 +201,7 @@ class Scale_Perturbation(OptimizerChain):
     epsilon : float
         The epsilon value for stability.
     """
-    def __init__(self, div_by_pop=False, div_by_rstd=False, mul_by_std=False, mul_by_lr=False, mul_by_lr_scalar=False, div_by_std=False, div_by_rmsprop_block=False, epsilon=1e-5):
+    def __init__(self, div_by_pop: bool = False, div_by_rstd: bool = False, mul_by_std: bool = False, mul_by_lr: bool = False, mul_by_lr_scalar: bool = False, div_by_std: bool = False, div_by_rmsprop_block: bool = False, epsilon: float = 1e-5):
         self.div_by_pop = div_by_pop
         self.div_by_rstd = div_by_rstd
         self.mul_by_std = mul_by_std

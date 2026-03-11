@@ -1,7 +1,7 @@
 from propagate.optimizers.chain import OptimizerChain
 from propagate.genome import Genome
 
-from typing import Dict
+from typing import Dict, List, Optional
 
 import torch
 import wandb
@@ -27,7 +27,7 @@ class Log_Perturb_Norms(OptimizerChain):
     # Note: This logs a scatterplot of hundreds of tensors per step id'd by their parameter id
     # Do log should only be True on rank zero
     # Also, your log_at value should terminate one step before the final step or it won't execute
-    def __init__(self, source = "perturbation_norms", log_at = None) -> None:
+    def __init__(self, source: str = "perturbation_norms", log_at: Optional[List[int]] = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
         
@@ -93,7 +93,7 @@ class Log_Perturb_Means(OptimizerChain):
     log_at : List[int]
         The steps at which to log.
     """
-    def __init__(self, source = "perturbation_means", log_at = None) -> None:
+    def __init__(self, source: str = "perturbation_means", log_at: Optional[List[int]] = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
         
@@ -161,7 +161,7 @@ class Log_Perturb_Variances(OptimizerChain):
     log_at : List[int]
         The steps at which to log.
     """
-    def __init__(self, source = "perturbation_variances", log_at = None) -> None:
+    def __init__(self, source: str = "perturbation_variances", log_at: Optional[List[int]] = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
         
@@ -228,7 +228,7 @@ class Log_RMSProp_Means(OptimizerChain):
     log_at : List[int]
         The steps at which to log.
     """
-    def __init__(self, source = "rmsprop_norms", log_at = None) -> None:
+    def __init__(self, source: str = "rmsprop_means", log_at: Optional[List[int]] = None) -> None:
         self.source = source
         self.log_at = log_at if log_at is not None else [3, 10, 100]
         
@@ -239,7 +239,7 @@ class Log_RMSProp_Means(OptimizerChain):
         if wandb.run is None:
             wandb.init(
                 project="propagate-experimental-logging",
-                name="debug-actor-rmsprop-norm", 
+                name="debug-actor-rmsprop-mean", 
                 job_type="experimental-debug",
                 tags=["debug", "actor-logs"]
             )
@@ -249,7 +249,7 @@ class Log_RMSProp_Means(OptimizerChain):
         if step-1 > max(self.log_at) + 1:
             return
         if (parameter_id, "rmsprop_block") in state:
-            key = f"log_rmsprop_block_norms_{self.source}"
+            key = f"log_rmsprop_block_means_{self.source}"
             data = state.get(key)
             if data == None:
                 table = wandb.Table(columns=["step", "value", "parameter_id"])
@@ -266,7 +266,7 @@ class Log_RMSProp_Means(OptimizerChain):
                         y="value", 
                         color="parameter_id",
                         markers=True,
-                        title=f"RMSProp Norms: {self.source}"
+                        title=f"RMSProp Means: {self.source}"
                     )
                     wandb.log({
                         f"misc/{self.source}": logged_table,
@@ -278,7 +278,7 @@ class Log_RMSProp_Means(OptimizerChain):
             data["data"].add_data(step, norms, str(parameter_id))
 
         if (parameter_id, "rmsprop") in state:
-            key = f"log_rmsprop_norms_{self.source}"
+            key = f"log_rmsprop_means_{self.source}"
             data = state.get(key)
             if data == None:
                 table = wandb.Table(columns=["step", "value", "parameter_id"])
@@ -295,7 +295,7 @@ class Log_RMSProp_Means(OptimizerChain):
                         y="value", 
                         color="parameter_id",
                         markers=True,
-                        title=f"RMSProp Norms: {self.source}"
+                        title=f"RMSProp Means: {self.source}"
                     )
                     wandb.log({
                         f"misc/{self.source}": logged_table,

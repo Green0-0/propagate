@@ -1,5 +1,6 @@
 # TODO:
 ### In progress:
+- Specified RMSProp initialization value (ie. 0.01)
 - Broadcast sync optimizer state
 - Dynamic sigma based on 1/5th rule (Changes to trainer)
 - Centered eval for logging, drop extremely bad steps, centered eval gradient calculation (Changes to trainer)

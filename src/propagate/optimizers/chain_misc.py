@@ -15,11 +15,11 @@ class OC_Muon_Whiten_Perturb_Buffer(OptimizerChain):
     force_bf16 : bool
         Whether to force bfloat16 for the iterations (recommended).
     """
-    def __init__(self, force_bf16 = True) -> None:
+    def __init__(self, force_bf16: bool = True) -> None:
         self.force_bf16 = force_bf16
         
     """WARNING: THIS WILL UNSCALE THE GRADIENT, ALSO ONLY WORKS ON NDIM==2 TENSORS"""
-    def newtonschulz5(self, G: torch.Tensor, steps=5, eps=1e-5):
+    def newtonschulz5(self, G: torch.Tensor, steps: int = 5, eps: float = 1e-5):
         assert G.ndim == 2
         a, b, c = (3.4445, -4.7750, 2.0315)
         X = G.T if G.size(0) > G.size(1) else G
@@ -50,7 +50,7 @@ class OC_Manifold_Project(OptimizerChain):
     
     WARNING: THE INPUT TENSOR MUST BE POSITIVE!
     """       
-    def sinkhorn_knopp(self, T: torch.Tensor, steps = 20, eps=1e-5):
+    def sinkhorn_knopp(self, T: torch.Tensor, steps: int = 20, eps: float = 1e-5):
         assert T.ndim == 2
         assert (T >= 0).all(), "Sinkhorn input must be strictly positive."
         for _ in range(0, steps):
@@ -73,7 +73,7 @@ class Probabilistic_Zero_Perturb_Buffer(OptimizerChain):
     probability_to_zero : float
         The probability to zero the buffer.
     """
-    def __init__(self, probability_to_zero = 0.5):
+    def __init__(self, probability_to_zero: float = 0.5):
         self.probability_to_zero = probability_to_zero
         
     @torch.no_grad()
@@ -85,7 +85,7 @@ class Probabilistic_Zero_Perturb_Buffer(OptimizerChain):
             perturbation.zero_()
         
 class Direct_Weight_Decay(OptimizerChain):
-    """Applies weight decay directly to the tensor.
+    """Directly applies weight decay to the tensor, without pulling it into the perturbation buffer first.
     
     Attributes
     ----------
@@ -94,7 +94,7 @@ class Direct_Weight_Decay(OptimizerChain):
     exponent : float
         The exponent to use for the weight decay.
     """
-    def __init__(self, lambda_val = 0.0001, exponent=0.5) -> None:
+    def __init__(self, lambda_val: float = 0.0001, exponent: float = 0.5) -> None:
         self.lambda_val = lambda_val
         self.exponent = exponent
     
