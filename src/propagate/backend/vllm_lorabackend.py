@@ -393,7 +393,7 @@ class VLLMBackendLoRA(Backend):
         Args:
             optimizer (Optimizer): The optimizer object.
         """
-        ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer, self.lora_perturb_target, self.norm_scale_update)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("update_weights_grad", args=(optimizer, self.lora_perturb_target, self.norm_scale_update)) for llm in self.inference_engines])
 
         ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
 

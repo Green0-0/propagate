@@ -172,7 +172,7 @@ class VLLMBackend(Backend):
         Args:
            optimizer (Optimizer): The optimizer containing the update logic and state.
         """
-        ray.get([llm.collective_rpc.remote("update_weights", args=(optimizer,)) for llm in self.inference_engines])
+        ray.get([llm.collective_rpc.remote("update_weights_grad", args=(optimizer,)) for llm in self.inference_engines])
 
         if self.NUM_GPUS > 1:
             ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])

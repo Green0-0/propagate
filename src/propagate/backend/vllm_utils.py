@@ -27,7 +27,7 @@ class WorkerExtension:
         The process group for inter-engine communication.
     """
     @torch.inference_mode()
-    def update_weights(self, optimizer: Optimizer):
+    def update_weights_grad(self, optimizer: Optimizer):
         """Update the model's weights using the provided optimizer.
         
         Args:

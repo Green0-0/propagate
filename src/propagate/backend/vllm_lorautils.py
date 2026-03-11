@@ -336,7 +336,7 @@ class WorkerExtension:
         return True
 
     @torch.inference_mode()
-    def update_weights(self, optimizer: Optimizer, target: str, norm_scale_update: bool):
+    def update_weights_grad(self, optimizer: Optimizer, target: str, norm_scale_update: bool):
         """Update the LoRA weights using the provided optimizer.
         Supports normalizing updates by the magnitude of the weights.
         
