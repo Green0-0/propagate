@@ -6,7 +6,6 @@ from propagate.datasets.reward import (
     LastMatchRewardGenerator, 
     MathVerifyRewardGenerator
 )
-import re
 
 # Helper for testing format reward
 def test_format_reward_structure():
@@ -24,28 +23,9 @@ def test_format_reward_structure():
 
     # Missing parts
     score_partial = reward_fn("<think>foo</think>")
-    # Has start/end think (2 points), missing start/end answer. But check order logic too...
-    # total possible: 4
-    # Points: start T (1) + end T (1) + start A (0) + end A (0) = 2/4 = 0.5
     assert score_partial == 0.5
 
-    # Wrong order
     score_wrong_order = reward_fn("<answer>bar</answer><think>foo</think>")
-    # Start T (0 - not at start?), End T (1), Start A (0 - before end T?), End A (1)
-    # The current implementation checks startswith for start_think.
-    # So: Start T=0. End T=1. Start A: checks against End T index. 
-    # "<answer>" index < "</think>" index? 0 < 15. So Start A logic fails if it expects specific order.
-    # The code says if end_think exists: find(start_answer) > find(end_think)
-    # Here: 0 < 15 -> False. So Start A point is 0.
-    # End A point is 1.
-    # Total: 2/4 = 0.5
-    # Score 4:
-    # <answer>bar</answer><think>foo</think>
-    # Start T: False (0).
-    # End T: True (1).
-    # Start A: False (0).
-    # End A: False (0) - strict endswith check.
-    # Total: 1/4 = 0.25.
     
     assert score_wrong_order == 0.25
 

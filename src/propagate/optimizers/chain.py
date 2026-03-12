@@ -147,7 +147,7 @@ class Init_Perturbation_Gaussian(OptimizerChain):
         del buffer
 
 class Init_Perturbation_Bernoulli(OptimizerChain):
-    """Initializes the perturbation buffer with Bernoulli/Hadamard noise: {(-center) * 2, (0.5 - center) * 2}.
+    """Initializes the perturbation buffer with Bernoulli/Rademacher noise: {(-center) * 2, (0.5 - center) * 2}.
     Warning: The bernoulli is multiplied by the weight of the seed. This is important for mirroring (where the weight might be -1), but make sure to not double count the perturbation scale by accident. By default the perturbation is not generated with the perturbation scale, it must be scaled later.
     
     Attributes

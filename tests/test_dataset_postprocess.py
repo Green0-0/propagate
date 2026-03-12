@@ -65,16 +65,6 @@ def test_normalized_length_reward(dummy_genomes):
     
     processor.post_process_rewards(dummy_genomes)
     
-    # Just verify that rewards changed in the expected direction relative to each other
-    # G3 is longest correct -> biggest penalty
-    # G1 is shortest correct -> smallest penalty
-    
-    # Ensure standard deviation exists in dummy_genomes:
-    # G1 (short_correct): 2 words (approx)
-    # G2 (long_incorrect...): 10 words
-    # G3 (very_long...): 20 words
-    # Mean ~ 10. Std > 0.
-    
     assert dummy_genomes[2].latest_rewards[0] <= dummy_genomes[0].latest_rewards[0]
     
     # Incorrect G2 should get a boost
