@@ -20,8 +20,6 @@ class SimpleTrainer:
         The backend to use for generating outputs.
     dataset : Dataset
         The dataset to use for training.
-    mirror : bool, optional
-        Whether to mirror the genomes. Defaults to False. Doubles the population size if enabled.
     wandb_project : str, optional
         The name of the project to use for logging. Defaults to None.
     validate_every : int, optional
@@ -36,30 +34,26 @@ class SimpleTrainer:
     optimizer: Optimizer
     backend: Backend
     dataset: Dataset
-    mirror: bool
-
+    
     genomes: List[Genome]
 
     iteration_count: int
 
     wandb_project: str
 
-    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, mirror: bool = False, wandb_project: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
+    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, wandb_project: str = None, wandb_project_name: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
         print("#-- Initializing Trainer [SimpleTrainer] --#")
         print(f"#-- Population Size: {optimizer.population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.perturb_scale} --#")
         self.optimizer = optimizer
         self.backend = backend
         self.dataset = dataset
-        self.mirror = mirror
-        if mirror:
-            print("#-- Mirror mode enabled: population size doubled. --#")
         
         backend.startup(self)
         
         self.genomes = [Genome() for _ in range(optimizer.population_size)]
         for genome in self.genomes:
             genome.mutate_seed(1)
-        if mirror:
+        if optimizer.mirror:
             mirrored_genomes = []
             for genome in self.genomes:
                 mirrored_genomes.append(genome.get_mirrored())
@@ -78,7 +72,7 @@ class SimpleTrainer:
                 wandb.login()
                 config = {
                     "population_size": optimizer.population_size,
-                    "mirror": mirror,
+                    "mirror": optimizer.mirror,
                     "total_steps": optimizer.total_steps,
                     "learning_rate": optimizer.learning_rate,
                     "perturb_scale": optimizer.perturb_scale,
@@ -102,7 +96,7 @@ class SimpleTrainer:
                     "max_ctx_len": backend.max_model_len,
                     "checkpoint_every": checkpoint_every,
                 }
-                wandb.init(project=self.wandb_project, config=config)
+                wandb.init(project=self.wandb_project, config=config, name=wandb_project_name)
                 wandb.define_metric("iteration_count")
                 wandb.define_metric("train/*", step_metric="iteration_count")
                 wandb.define_metric("misc/*", step_metric="iteration_count")
@@ -125,7 +119,7 @@ class SimpleTrainer:
             start_time = time.time()
 
             # Evaluation
-            inputs = self.dataset.next(population_size=self.optimizer.population_size, mirror=self.mirror)
+            inputs = self.dataset.next(population_size=self.optimizer.population_size, mirror=self.optimizer.mirror)
             self.backend.generate_outputs(self.genomes, self.optimizer, self.dataset.suffix, inputs)
             self.dataset.score_all(self.genomes)
 
@@ -160,7 +154,7 @@ class SimpleTrainer:
             self.genomes = [Genome() for _ in range(self.optimizer.population_size)]
             for genome in self.genomes:
                 genome.mutate_seed(1)
-            if self.mirror:
+            if self.optimizer.mirror:
                 mirrored_genomes = []
                 for genome in self.genomes:
                     mirrored_genomes.append(genome.get_mirrored())

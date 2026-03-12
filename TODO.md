@@ -1,12 +1,11 @@
 # TODO:
 ### In progress:
-- Specified RMSProp initialization value (ie. 0.01)
 - Broadcast sync optimizer state
 - Dynamic sigma based on 1/5th rule (Changes to trainer)
 - Centered eval for logging, drop extremely bad steps, centered eval gradient calculation (Changes to trainer)
 - Line search genome on previous gradient (Changes to trainer)
-- Simplify backends, cleanup lora backend
-- Update tutorials, documentation, docstrings, model saving
+- Cleanup lora backend
+- Update tutorials, model saving
 
 ### Experimental:
 - New optimizer chains, NAdam, Muon, fp32, rank-centering, SignSGD
@@ -20,7 +19,6 @@
 - Colab/Kaggle notebooks
 
 - Optimized LoRA backend with round robin adapter inference
-- Write unit tests
 
 - Env training (ie. agentic, coding, multiturn etc), requires dataset input rework
 - Proper model saving: currently waiting for official ES github to find a solution, will write one myself if progress stalls

@@ -18,7 +18,9 @@ dependencies = [
     "wandb",
     "datasets",
     "peft",
-    "math_verify"
+    "math_verify",
+    "plotly",
+    "matplotlib"
 ]
 
 [tool.setuptools.packages.find]

@@ -16,15 +16,12 @@ INTERNAL_MODULES = [
     "propagate",
     "propagate.genome",
     "propagate.optimizers",
-    "propagate.trainer",
     
     # Backend
     "propagate.backend.backend_abc",
     "propagate.backend.vllm_backend",
     "propagate.backend.vllm_lorabackend",
     "propagate.backend.vllm_lorautils",
-    "propagate.backend.vllm_tpu_tp_backend",
-    "propagate.backend.vllm_tpu_tp_lora_backend",
     "propagate.backend.vllm_utils",
 
     # Datasets
@@ -34,6 +31,9 @@ INTERNAL_MODULES = [
     "propagate.datasets.postprocessreward",
     "propagate.datasets.reward",
     "propagate.datasets.rlhf_reward",
+
+    # Trainer
+    "propagate.trainer", 
 ]
 
 @pytest.mark.parametrize("library", EXTERNAL_LIBS)

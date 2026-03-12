@@ -118,8 +118,11 @@ class NormalizedLengthReward(PostProcessReward):
             for output in genome.latest_outputs:
                 all_lengths.append(len(output.split()))
 
+        if not all_lengths:
+            return
+
         mean_length = sum(all_lengths) / len(all_lengths)
-        variance = sum((x - mean_length) ** 2 for x in all_lengths) / (len(all_lengths) - 1)
+        variance = sum((x - mean_length) ** 2 for x in all_lengths) / (len(all_lengths) - 1) if len(all_lengths) > 1 else 0
         std_dev = math.sqrt(variance)
         
         if std_dev == 0:

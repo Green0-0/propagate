@@ -258,7 +258,7 @@ class VLLMBackendLoRA(Backend):
         strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
         
         self.population_size = trainer.optimizer.population_size
-        if trainer.mirror:
+        if trainer.optimizer.mirror:
             self.population_size = self.population_size * 2
         max_loras_per_worker = math.ceil(self.population_size / self.NUM_GPUS)
 

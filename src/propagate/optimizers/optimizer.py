@@ -33,6 +33,8 @@ class Optimizer():
         The scale of the perturbation (sigma).
     population_size : int
         The number of genomes evaluated per step during optimization.
+    mirror : bool
+        Whether or not to mirror genomes. Doubles the population if true.
     warmup_steps : int
         The number of warmup steps.
     perturb_chain : List[OptimizerChain]
@@ -55,7 +57,9 @@ class Optimizer():
         self.perturb_scale = perturb_scale
         self.population_size = population_size
         self.mirror = mirror
-        
+        if mirror:
+            print("#-- Mirror mode enabled: population size doubled. --#")
+            
         self.last_lr = learning_rate
         self.last_step = 1
         self.last_rstd = 1
@@ -244,7 +248,7 @@ class Optimizer():
     def restore_from_history(self, history, backend):
         """Restores the latest genome's state by tracing the updates from the representative genomes in the provided history. The genome is restored into the backend, meaning that the backend's weights will be modified.
         
-        WARNING: Will not restore the optimizer state.
+        WARNING: Will not restore the optimizer state!
         
         Args:
             history (List[Genome]): The history to restore from.
