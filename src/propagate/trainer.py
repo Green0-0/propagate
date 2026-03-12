@@ -71,6 +71,9 @@ class SimpleTrainer:
             try:
                 wandb.login()
                 config = {
+                    "perturb_chain": ", ".join([obj.__class__.__name__ for obj in optimizer.perturb_chain]),
+                    "inverted_perturb_chain": ", ".join([obj.__class__.__name__ for obj in optimizer.inverted_perturb_chain]),
+                    "update_chain": ", ".join([obj.__class__.__name__ for obj in optimizer.update_chain]),
                     "population_size": optimizer.population_size,
                     "mirror": optimizer.mirror,
                     "total_steps": optimizer.total_steps,
