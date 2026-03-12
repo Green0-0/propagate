@@ -414,6 +414,8 @@ class WorkerExtension:
         for i, genome in enumerate(genomes):
             aid, _ = sorted_adapters[i]
             weights = self._collect_gpu_lora_tensors(aid)
+            if aid not in self.optimizer_state_per_adapter:
+                self.optimizer_state_per_adapter[aid] = {}
             state = self.optimizer_state_per_adapter[aid]
             
             rand_counter = 0
