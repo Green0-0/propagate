@@ -22,24 +22,26 @@ try:
     backend = VLLMBackend(model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, GPU_FRACTION_VLLM_WORKER=0.9, sampler=sampler, use_tqdm=False, time_self=True)
 
     perturb_chain = [
-        chain.Init_Perturbation_Bernoulli(fp32_accumulate=False), 
+        chain.Init_Perturbation_Bernoulli(fp32_accumulate=True), 
         chain.Scale_Perturbation(mul_by_std=True, mul_by_lr_scalar=True), 
         chain.Add_Perturb_Buffer(), 
         chain.Delete_Perturb_Buffer()
     ]
     update_chain = [
-        chain.Init_Perturbation_Bernoulli(fp32_accumulate=False), 
-        chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, mul_by_std=True, mul_by_lr_scalar=True), 
+        chain.Init_Perturbation_Bernoulli(fp32_accumulate=True), 
+        chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, mul_by_std=True, div_by_rstd=True, mul_by_lr_scalar=True), 
         chain.Add_Perturb_Buffer(), 
         chain.Delete_Perturb_Buffer()
     ]
-    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=0.15, perturb_scale=0.001, mirror=True, population_size=14, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=False, rank_norm_rewards=True)
+    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=1.5, perturb_scale=0.001, mirror=False, population_size=28, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=True, rank_norm_rewards=False)
 
     trainer = SimpleTrainer(optimizer=optimizer,
                             backend=backend,
                             dataset=dataset,
+                            do_centered_eval=True,
+                            dynamic_perturbation_smoothing_factor=0.2,
                             wandb_project="propagate_v2_optimizers",
-                            wandb_project_name="gauss_nomirror_ranknorm_bf16_lr0.15_std0.001",
+                            wandb_project_name="bern_nomirror_centered_fp32_lr1.5_std0.001",
                             validate_every=10,
                             print_samples=True,
                             checkpoint_every=1000,
