@@ -228,3 +228,4 @@ class Scale_Perturbation(OptimizerChain):
         if self.div_by_rmsprop_block and (parameter_id, "rmsprop_block") in state: total_scale *= 1 / (math.sqrt(state[(parameter_id, "rmsprop_block")]/(1 - state[(parameter_id, "rmsprop_block_decay_coeff")])) + self.epsilon)
         perturbation = state["perturb_buffer"]
         perturbation.mul_(total_scale)
+        

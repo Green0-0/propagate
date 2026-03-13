@@ -33,7 +33,7 @@ try:
         chain.Add_Perturb_Buffer(), 
         chain.Delete_Perturb_Buffer()
     ]
-    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=1.5, perturb_scale=0.001, mirror=False, population_size=28, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=True, rank_norm_rewards=False)
+    optimizer = Optimizer(optimizer_name="Test Optimizer", total_steps=200, learning_rate=25, perturb_scale=0.001, mirror=False, population_size=28, perturb_chain=perturb_chain, update_chain=update_chain, norm_by_mean=True, rank_norm_rewards=False)
 
     trainer = SimpleTrainer(optimizer=optimizer,
                             backend=backend,
@@ -41,7 +41,7 @@ try:
                             do_centered_eval=True,
                             dynamic_perturbation_smoothing_factor=0.2,
                             wandb_project="propagate_v2_optimizers",
-                            wandb_project_name="bern_nomirror_centered_fp32_lr1.5_std0.001",
+                            wandb_project_name="bern_nomirror_centered_fp32_lr25_std0.001",
                             validate_every=10,
                             print_samples=True,
                             checkpoint_every=1000,

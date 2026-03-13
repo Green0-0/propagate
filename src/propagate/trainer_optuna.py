@@ -2,6 +2,8 @@ import json
 import math
 import os
 from typing import Any, List
+
+import optuna
 from propagate.backend.backend_abc import Backend
 from propagate.datasets.dataset import Dataset
 from propagate.optimizers.optimizer import Optimizer
@@ -10,38 +12,7 @@ import wandb
 
 from propagate.genome import Genome
 
-class SimpleTrainer:
-    """The standard ES trainer. Orchestrates the training process, logging statistics, and model saving.
-        
-    Attributes
-    ----------
-    optimizer : Optimizer
-        The optimizer to use for training.
-    backend : Backend
-        The backend to use for generating outputs.
-    dataset : Dataset
-        The dataset to use for training.
-    do_centered_eval : bool, optional
-        Whether or not to do one extra eval on the unperturbed gradient. Enables centered eval and dyanmic perturbation scales. Defaults to False.
-    pass_true_mean : bool, optional
-        Whether or not to pass the centered eval mean to the optimizer as the true mean for gradient calculation when norm_by_mean is set to true. Defaults to True.
-    dynamic_perturbation_target : float, optional
-        The amount we want our perturbed rewards to drift from the center. Defaults to 0.1.
-    dynamic_perturbation_smoothing_factor : float, optional 
-        Whether or not to dynamically adjust the perturbation scale using the centered eval and a slightly modified version of the PSR rule that works with mirroring. Defaults to 0, which disables it, recommend <0.5.
-    skip_step_ratio : float, optional
-        Skips steps where the proportion of genomes with a reward greater than the centered eval is less than this variable. Defaults to 0.
-    wandb_project : str, optional
-        The name of the project to use for logging. Defaults to None.
-    validate_every : int, optional
-        The number of iterations between validation. Defaults to 0.
-    print_samples : bool, optional
-        Whether to print samples. Defaults to False.
-    checkpoint_every : int, optional
-        The number of iterations between checkpoints. Defaults to 0.
-    checkpoint_path : str, optional
-        The path to save checkpoints to. Defaults to "checkpoints/model.json".
-    """
+class OptunaTrainer:
     optimizer: Optimizer
     backend: Backend
     dataset: Dataset
@@ -76,7 +47,7 @@ class SimpleTrainer:
         self.pass_true_mean = pass_true_mean
         self.dynamic_perturbation_target = dynamic_perturbation_target
         self.dynamic_perturbation_smoothing_factor = dynamic_perturbation_smoothing_factor
-        self.skip_step_ratio = skip_step_ratio
+        self.skip_step_ratio = skip_step_ratio # Note: Do NOT SWEEP THIS IT WILL CAUSE BUGS!
         
         if dataset.force_reuse_batches == False and self.do_centered_eval:
             # TODO: Consider bagging style sampling from the batch instead of assigning a seperate batch to the centered eval
@@ -141,11 +112,12 @@ class SimpleTrainer:
             
         print("#-- Trainer initialized. --#")
 
-    def train(self):
+    def train(self, optuna_trial):
         """Trains the model for the specified number of iterations.
         Beguns by yielding the next set of data points, which are sent to the backend alongside the genomes for evaluation.
         Then, after evaluation, the dataset is used to score the genomes, which are passed to the optimizer to perform the gradient update.
         Lastly, a new generation is created, and statistics are logged (including val, if applicable)."""
+        latest_val_score = 0.0
         while self.iteration_count < self.optimizer.total_steps:
             self.iteration_count += 1
 
@@ -201,8 +173,20 @@ class SimpleTrainer:
                     self.dataset.score_all([new_genome])
                     end_time = time.time()
                     print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
+                    latest_val_score = new_genome.historical_rewards[-1]
                     self.log_val_stats(new_genome, end_time - start_time)
-                
+                    if self.iteration_count == 10:
+                        if new_genome.historical_rewards[-1] < 0.3:
+                            print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
+                            raise optuna.TrialPruned()
+                    if self.iteration_count == 20:
+                        if new_genome.historical_rewards[-1] < 0.35:
+                            print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
+                            raise optuna.TrialPruned()
+                    optuna_trial.report(new_genome.historical_rewards[-1], self.iteration_count)
+                    if optuna_trial.should_prune():
+                        print(f"Run survived early cuts but failed Step 100 check. Pruned.")
+                        raise optuna.TrialPruned()
                 # Save checkpoint
                 if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:
                     base, ext = os.path.splitext(self.checkpoint_path)
@@ -222,7 +206,7 @@ class SimpleTrainer:
             if self.do_centered_eval:
                 self.center = Genome()
                 self.genomes.append(self.center)
-
+        return latest_val_score
     def save_model_seeds(self, filepath: str):
         """Get the actual optimizer history from the optimizer (which has some structure and contains genomes), convert the genomes to a json-serializable format, and save it to a file."""
         history = self.optimizer.get_update_history()
