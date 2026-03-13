@@ -83,6 +83,8 @@ class Optimizer():
         self.scheduler = scheduler
         self.norm_by_mean = norm_by_mean
         self.rank_norm_rewards = rank_norm_rewards
+        if self.norm_by_mean and self.rank_norm_rewards:
+            raise ValueError("Please do not norm by mean and norm by rank!")
         
         self.rep_genome = Genome()
         self.update_history = []
@@ -112,7 +114,7 @@ class Optimizer():
             return self.learning_rate * math.exp(-2 * math.sqrt(t))
         raise ValueError(f"Unknown scheduler: {self.scheduler}")
     
-    def update_self(self, genomes: List[Genome], current_step: int):
+    def update_self(self, genomes: List[Genome], current_step: int, true_reward_mean: float = None):
         """
         Update the optimizer's internal state based on the provided genomes.
 
@@ -131,6 +133,7 @@ class Optimizer():
         # Calculate reward statistics for normalization (if enabled)
         rewards = [g.historical_rewards[-1] for g in genomes]
         reward_mean = sum(rewards) / len(genomes)
+        true_mean = true_reward_mean if true_reward_mean is not None else reward_mean
         self.last_rstd = (sum([(r - reward_mean) ** 2 for r in rewards]) / len(genomes)) ** 0.5
 
         # Build representative genome from a combination of old seeds (history) and new seeds (gradients)
@@ -156,7 +159,7 @@ class Optimizer():
             if self.rank_norm_rewards:
                 grad_scale = centered_ranks[c]
             else:
-                grad_scale = g.historical_rewards[-1] - (reward_mean if self.norm_by_mean else 0)
+                grad_scale = g.historical_rewards[-1] - (true_mean if self.norm_by_mean else 0)
             
             for i, seed in enumerate(g.seeds):
                 weight = g.perturb_scales[i]

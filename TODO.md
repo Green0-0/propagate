@@ -1,11 +1,10 @@
 # TODO:
 ### In progress:
 - Broadcast sync optimizer state
-- Dynamic sigma based on 1/5th rule (Changes to trainer)
-- Centered eval for logging, drop extremely bad steps, centered eval gradient calculation (Changes to trainer)
 - Line search genome on previous gradient (Changes to trainer)
-- Log full chain
 - Cleanup lora backend (Check vLLM async)
+- Cleanup trainer, make a universal center eval
+- Optunia sweeps
 - Update tutorials, model saving
 
 ### Experimental:

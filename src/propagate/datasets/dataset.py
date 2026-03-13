@@ -114,12 +114,13 @@ class Dataset:
         batch = expanded_batch
         return batch
     
-    def next(self, population_size: int, mirror: bool) -> List[List[List[Dict[str, str]]]]:
+    def next(self, population_size: int, mirror: bool, center: bool) -> List[List[List[Dict[str, str]]]]:
         """Return a separate batch for each member of the population. Saves the yielded batch internally for reuse in eval.
 
         Args:
             population_size (int): The size of the population.
             mirror (bool): Whether to mirror the batch for a mirrored population.
+            center (bool): Whether to include a centered evaluation batch.
 
         Returns:
             List[List[List[Dict[str, str]]]]: A list of batches, each batch being a list of input texts in ShareGPT format.
@@ -127,6 +128,9 @@ class Dataset:
         self.last_batch = []
         all_inputs = []
         self.last_batch_is_train = True
+        
+        batch = None
+
         if self.force_reuse_batches:
             batch = self._get_next_batch()
             dict_lists, answer_funcs, reward_funcs = zip(*batch)
@@ -138,9 +142,19 @@ class Dataset:
                 dict_lists, answer_funcs, reward_funcs = zip(*batch)
                 self.last_batch.append((list(dict_lists), list(answer_funcs), list(reward_funcs)))
                 all_inputs.append(list(dict_lists))
+        
         if mirror:
             all_inputs = all_inputs * 2
             self.last_batch = self.last_batch * 2
+            
+        if center:
+            if not self.force_reuse_batches or batch is None:
+                batch = self._get_next_batch()
+            
+            dict_lists, answer_funcs, reward_funcs = zip(*batch)
+            self.last_batch.append((list(dict_lists), list(answer_funcs), list(reward_funcs)))
+            all_inputs.append(list(dict_lists))
+            
         return all_inputs
 
     def get_test_set(self) -> List[List[List[Dict[str, str]]]]:
