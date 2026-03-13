@@ -6,7 +6,6 @@ from propagate.backend.backend_abc import Backend
 import signal
 import sys
 import os
-from propagate.trainer import SimpleTrainer
 import ray
 import torch
 import time 
@@ -25,6 +24,7 @@ import tempfile
 import gc
 
 from propagate.optimizers.optimizer import Optimizer
+from propagate.training_config import TrainingConfig
 
 class VLLMBackendLoRA(Backend):
     """The vLLM backend with LoRA support. Uses Ray to spawn vLLM workers and distribute inference across them.
@@ -72,15 +72,15 @@ class VLLMBackendLoRA(Backend):
         self.repeat_tokens_begin_scan_count = repeat_tokens_begin_scan_count
         self.repeat_tokens_lookback_length = repeat_tokens_lookback_length
 
-    def startup(self, trainer: SimpleTrainer):
-        """Requires the trainer to determine the number of adapters to create (based on the population size).
+    def startup(self, config: TrainingConfig):
+        """Requires the training config to determine the number of adapters to create (based on the population size).
         Uses a highly customized LLM subclass with repetition truncation support and proper batched lora inference.
         Begins by setting up ray as the standard backend does, and initalizes vLLM with lora support.
         Then creates the LoRA adapters seperately with huggingface peft.
         Finally, it preloads the adapters by sending dummy inference requests to the vllm workers.
 
         Args:
-           trainer (SimpleTrainer): The trainer object calling this method.
+           config (TrainingConfig): The config object for training.
         """
         os.environ.pop("RAY_ADDRESS", None)
         os.environ.pop("RAY_HEAD_IP", None)
@@ -257,8 +257,8 @@ class VLLMBackendLoRA(Backend):
         ray.get([pg.ready() for pg in pgs])
         strategies = [PlacementGroupSchedulingStrategy(placement_group=pg, placement_group_capture_child_tasks=True, placement_group_bundle_index=0) for pg in pgs]
         
-        self.population_size = trainer.optimizer.population_size
-        if trainer.optimizer.mirror:
+        self.population_size = config.population_size
+        if config.mirror:
             self.population_size = self.population_size * 2
         max_loras_per_worker = math.ceil(self.population_size / self.NUM_GPUS)
 

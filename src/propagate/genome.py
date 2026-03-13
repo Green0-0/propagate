@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 from random import randint
 
 class Genome:
@@ -89,3 +89,18 @@ class Genome:
         mirrored = self.get_copy()
         mirrored.perturb_scales[-1] = -mirrored.perturb_scales[-1]
         return mirrored
+    
+    def get_data(self) -> Dict:
+        return {
+            "seeds": self.seeds,
+            "perturb_scales": self.perturb_scales,
+            "historical_rewards": self.historical_rewards,
+            "starting_index": self.starting_index,
+        }
+        
+    def from_data(self, data: Dict):
+        self.seeds = data["seeds"]
+        self.perturb_scales = data["perturb_scales"]
+        self.historical_rewards = data["historical_rewards"]
+        self.starting_index = data["starting_index"]
+        return self

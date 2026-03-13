@@ -1,7 +1,9 @@
 import pytest
 import torch
 from propagate.optimizers.optimizer import Optimizer
-from propagate.optimizers import chain, chain_adam, chain_log
+from propagate.optimizers import chain
+from propagate.training_config import TrainingConfig
+from propagate.genome import Genome
 
 def test_convergence_quadratic(dummy_tensor):
     """
@@ -9,7 +11,7 @@ def test_convergence_quadratic(dummy_tensor):
     Optimizer should drive x from [1,1,1...] to [0,0,0...]
     """
     
-    # 1. Setup the Problem
+    # Setup the Problem
     target = torch.zeros(10, dtype=torch.float32)
     current_weights = torch.ones(10, dtype=torch.float32) * 5.0 # Start far away
     
@@ -18,11 +20,7 @@ def test_convergence_quadratic(dummy_tensor):
         mse = torch.mean((weights - target)**2)
         return -mse.item()
     
-    # 2. Setup Optimizer (Simple SGD)
-    # Pipeline:
-    # Perturb: Gaussian -> Scale
-    # Update: Scale(mul_by_lr) -> Add to Buffer
-    
+    # Setup Optimizer (Simple SGD)
     perturb_chain = [
         chain.Init_Perturbation_Gaussian(),
         chain.Scale_Perturbation(mul_by_std=True),
@@ -37,39 +35,28 @@ def test_convergence_quadratic(dummy_tensor):
         chain.Delete_Perturb_Buffer(),
     ]
     
-    opt = Optimizer(
-        optimizer_name="test_sgd",
+    config = TrainingConfig(
         total_steps=50,
-        learning_rate=1.0, # High LR for fast convergence
+        learning_rate=1.0, 
         perturb_scale=0.1,
         population_size=20,
         mirror=True,
+        rank_norm_rewards=False,
+    )
+
+    opt = Optimizer(
+        optimizer_name="test_sgd",
+        config=config,
         perturb_chain=perturb_chain,
         update_chain=update_chain,
-        norm_by_mean=True,
-        rank_norm_rewards=False
     )
     
-    # 3. Training Loop simulation without Backend
-    
+    # Training Loop simulation without Backend
     initial_loss = calculate_reward(current_weights)
-    
-    # Re-check Optimizer logic in `update_self`:
-    # It calculates `perturb_scales` for the representative genome.
-    # Does it scale them by something small?
-    # `grad_scale = (reward - reward_mean) / (self.last_rstd + 1e-8)` (if normalized? No, code says:
-    # self.last_rstd = ...
-    # if self.norm_by_mean: grad_scale = reward - reward_mean.
-    # It does NOT divide by std unless implemented elsewhere?
-    # Code review of `optimizer.py` (not visible here but usually standard ES doesn't divide by std unless specified).
-    
-    # Setup for fix: Increase steps to 100 for more convergence on random problem
     
     for step in range(100):
         # Create population
-        # Simulate simple backend (stateless for now, recreating genomes like trainer)
-        from propagate.genome import Genome
-        population = [Genome() for _ in range(opt.population_size)] # Half population
+        population = [Genome() for _ in range(opt.config.population_size)] 
         for g in population: 
             g.mutate_seed(1.0) # Add fresh seed
         

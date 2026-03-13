@@ -3,6 +3,7 @@ from typing import List, Dict
 
 from propagate.genome import Genome
 from propagate.optimizers.optimizer import Optimizer
+from propagate.training_config import TrainingConfig
 
 class Backend(ABC):
     """Abstract base class for execution backends.
@@ -23,11 +24,11 @@ class Backend(ABC):
         self.time_self = time_self
 
     @abstractmethod
-    def startup(self, trainer=None):
+    def startup(self, config: TrainingConfig = None):
         """Load the model and prepare the backend for inference. Called before training starts.
         
         Args:
-            trainer (SimpleTrainer): The trainer object calling this method. Used to access trainer configuration if needed."""
+            config (TrainingConfig): The config used for training."""
         pass
 
     @abstractmethod

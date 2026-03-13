@@ -45,7 +45,7 @@ class VLLMBackend(Backend):
     def __init__(self, model_name: str, NUM_GPUS: int, CPUS_PER_GPU: int, GPU_FRACTION_VLLM_WORKER: float, sampler: SamplingParams, use_tqdm: bool = False, max_model_len: int = 4096, time_self: bool = False):
         super().__init__(backend_name="Standard vLLM Backend", model_name=model_name, NUM_GPUS=NUM_GPUS, CPUS_PER_GPU=CPUS_PER_GPU, GPU_FRACTION_VLLM_WORKER=GPU_FRACTION_VLLM_WORKER, sampler=sampler, use_tqdm=use_tqdm, max_model_len=max_model_len, time_self=time_self)
     
-    def startup(self, trainer=None):
+    def startup(self, config=None):
         """Initializes the vLLM backend with Ray actors and placement groups.
         Automatically detects single-node vs multi-node mode based on environment (multi-node requires a head node IP to be set in the environment).
         Also sets up broadcasting group for weight sync.

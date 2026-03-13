@@ -89,7 +89,7 @@ def test_next_population_no_reuse(basic_dataset):
     # Total available items = 3. 
     # Genome 0 gets [0, 1]
     # Genome 1 gets [2, 0] (wrap around)
-    inputs = basic_dataset.next(population_size=pop_size, mirror=False)
+    inputs = basic_dataset.next(population_size=pop_size, mirror=False, center=False)
     
     assert len(inputs) == pop_size
     assert len(inputs[0]) == 2
@@ -106,7 +106,7 @@ def test_next_population_force_reuse(basic_dataset):
     pop_size = 3
     
     # All genomes should get the SAME batch
-    inputs = basic_dataset.next(population_size=pop_size, mirror=False)
+    inputs = basic_dataset.next(population_size=pop_size, mirror=False, center=False)
     
     assert len(inputs) == pop_size
     first_batch_content = inputs[0]
@@ -116,7 +116,7 @@ def test_next_population_force_reuse(basic_dataset):
 
 def test_next_population_mirror(basic_dataset):
     pop_size = 2
-    inputs = basic_dataset.next(population_size=pop_size, mirror=True)
+    inputs = basic_dataset.next(population_size=pop_size, mirror=True, center=False)
     
     # Mirror doubles the output list
     assert len(inputs) == pop_size * 2
@@ -140,7 +140,7 @@ def test_generate_test_split(basic_dataset):
 def test_score_all(basic_dataset):
     # Setup a single genome interaction
     genome = Genome()
-    inputs = basic_dataset.next(population_size=1, mirror=False)
+    inputs = basic_dataset.next(population_size=1, mirror=False, center=False)
     # Batch is [q1, q2] -> targets are a1, a2
     
     # Set outputs manually
@@ -170,7 +170,7 @@ def test_passk_logic(basic_dataset):
     
     genome = Genome()
     # next() automatically expands the batch by passk
-    inputs = basic_dataset.next(population_size=1, mirror=False)
+    inputs = basic_dataset.next(population_size=1, mirror=False, center=False)
     
     # Original batch size 2. Expanded by passk=2 -> 4 items.
     # Logic: [Item1_Try1, Item1_Try2, Item2_Try1, Item2_Try2]
@@ -215,4 +215,4 @@ def test_balanced_merge(dataset_for_merge_1, dataset_for_merge_2):
     assert len(merged.pairs_train) == 3
     assert merged.pairs_train[0][0][0]["content"] == "1-q1"
     assert merged.pairs_train[1][0][0]["content"] == "2-q1"
-    assert merged.pairs_train[2][0][0]["content"] == "1-q2" 
+    assert merged.pairs_train[2][0][0]["content"] == "1-q2"

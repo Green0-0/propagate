@@ -1,16 +1,16 @@
 # TODO:
 ### In progress:
 - Broadcast sync optimizer state
-- Line search genome on previous gradient (Changes to trainer)
 - Cleanup lora backend (Check vLLM async)
 - Cleanup trainer, make a universal center eval
-- Optunia sweeps
 - Update tutorials, model saving
 
 ### Experimental:
 - New optimizer chains, NAdam, Muon, fp32, rank-centering, SignSGD
 
 ### Planned:
+- Line search genome on previous gradient (Changes to trainer)
+
 - Per layer optimizers, exclude non-trainable params from optimization
 
 - RLHF: implemented, may work, requires a lot of testing

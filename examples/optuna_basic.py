@@ -15,6 +15,7 @@ def worker_process(storage_url, study_name, mode):
         from propagate.backend.vllm_lorabackend import VLLMBackendLoRA
         from propagate.datasets.countdown_dataset import load_countdown_dataset
         from propagate.trainer_optuna import OptunaTrainer
+        from propagate.training_config import TrainingConfig
         from propagate.optimizers.optimizer import Optimizer
         from propagate.optimizers import chain, chain_adam, chain_adam_seeded, chain_log, chain_misc
         from vllm import SamplingParams
@@ -31,7 +32,6 @@ def worker_process(storage_url, study_name, mode):
 
         def objective(trial):
             # --- HYPERPARAMETER SEARCH SPACE ---
-            
             # Independent parameters (Flat)
             noise_type = trial.suggest_categorical("noise_type", ['bern', 'gaus'])
             mirror = trial.suggest_categorical("mirror", [True, False])
@@ -108,18 +108,25 @@ def worker_process(storage_url, study_name, mode):
                 chain.Delete_Perturb_Buffer()
             ]
 
+            config = TrainingConfig(
+                total_steps=200,
+                learning_rate=lr,
+                perturb_scale=perturb_scale,
+                mirror=mirror,
+                population_size=population_size,
+                rank_norm_rewards=(norm_type == "rank_norm"),
+                lr_scheduler=scheduler,
+                centered_eval=reuse_batches,
+                pass_true_mean=centered_eval_norm,
+                dynamic_perturb_target=dynamic_perturbation_target,
+                dynamic_perturb_smoothing_factor=dynamic_perturbation_smoothing_factor
+            )
+
             optimizer = Optimizer(
                 optimizer_name="Test Optimizer", 
-                total_steps=200, 
-                learning_rate=lr, 
-                perturb_scale=perturb_scale, 
-                mirror=mirror, 
-                population_size=population_size, 
+                config=config, 
                 perturb_chain=perturb_chain, 
-                update_chain=update_chain, 
-                norm_by_mean=not mirror and norm_type != 'rank_norm', 
-                rank_norm_rewards=(norm_type == "rank_norm"),
-                scheduler=scheduler
+                update_chain=update_chain
             )
 
             # --- SETUP TRAINER ---
@@ -127,10 +134,6 @@ def worker_process(storage_url, study_name, mode):
                 optimizer=optimizer,
                 backend=backend,
                 dataset=dataset,
-                do_centered_eval=reuse_batches,
-                pass_true_mean=centered_eval_norm,
-                dynamic_perturbation_target=dynamic_perturbation_target,
-                dynamic_perturbation_smoothing_factor=dynamic_perturbation_smoothing_factor,
                 wandb_project="propagate_lora_basic_sweeps" if mode == 'lora' else "propagate_basic_sweeps",
                 wandb_project_name=run_name,
                 validate_every=10,

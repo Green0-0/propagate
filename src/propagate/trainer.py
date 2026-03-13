@@ -1,3 +1,4 @@
+import copy
 import json
 import math
 import os
@@ -21,16 +22,6 @@ class SimpleTrainer:
         The backend to use for generating outputs.
     dataset : Dataset
         The dataset to use for training.
-    do_centered_eval : bool, optional
-        Whether or not to do one extra eval on the unperturbed gradient. Enables centered eval and dyanmic perturbation scales. Defaults to False.
-    pass_true_mean : bool, optional
-        Whether or not to pass the centered eval mean to the optimizer as the true mean for gradient calculation when norm_by_mean is set to true. Defaults to True.
-    dynamic_perturbation_target : float, optional
-        The amount we want our perturbed rewards to drift from the center. Defaults to 0.1.
-    dynamic_perturbation_smoothing_factor : float, optional 
-        Whether or not to dynamically adjust the perturbation scale using the centered eval and a slightly modified version of the PSR rule that works with mirroring. Defaults to 0, which disables it, recommend <0.5.
-    skip_step_ratio : float, optional
-        Skips steps where the proportion of genomes with a reward greater than the centered eval is less than this variable. Defaults to 0.
     wandb_project : str, optional
         The name of the project to use for logging. Defaults to None.
     validate_every : int, optional
@@ -52,39 +43,35 @@ class SimpleTrainer:
 
     wandb_project: str
 
-    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, do_centered_eval: bool = False, pass_true_mean: bool = True, dynamic_perturbation_target: float = 0.25, dynamic_perturbation_smoothing_factor: float = 0, skip_step_ratio: float = 0, wandb_project: str = None, wandb_project_name: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
+    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, wandb_project: str = None, wandb_project_name: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
+        self.config = optimizer.config
+        backend.startup(self.config)
+        
         print("#-- Initializing Trainer [SimpleTrainer] --#")
-        print(f"#-- Population Size: {optimizer.population_size}, Learning Rate: {optimizer.learning_rate}, Weight: {optimizer.perturb_scale} --#")
+        print(f"#-- Population Size: {self.config.population_size}, Learning Rate: {self.config.learning_rate}, Weight: {self.config.perturb_scale} --#")
+        if self.config.mirror:
+            print("#-- Mirror mode enabled: population size doubled. --#")
         self.optimizer = optimizer
         self.backend = backend
         self.dataset = dataset
         
-        backend.startup(self)
-        
-        self.genomes = [Genome() for _ in range(optimizer.population_size)]
+        self.genomes = [Genome() for _ in range(self.config.population_size)]
         for genome in self.genomes:
             genome.mutate_seed(1)
-        if optimizer.mirror:
+        if self.config.mirror:
             mirrored_genomes = []
             for genome in self.genomes:
                 mirrored_genomes.append(genome.get_mirrored())
             self.genomes.extend(mirrored_genomes)
 
         self.iteration_count = 0
+        self.update_history = {"genomes": [], "step": [], "lr": [], "std": [], "rstd": []}
         
-        self.do_centered_eval = do_centered_eval
-        self.pass_true_mean = pass_true_mean
-        self.dynamic_perturbation_target = dynamic_perturbation_target
-        self.dynamic_perturbation_smoothing_factor = dynamic_perturbation_smoothing_factor
-        self.skip_step_ratio = skip_step_ratio
-        
-        if dataset.force_reuse_batches == False and self.do_centered_eval:
-            # TODO: Consider bagging style sampling from the batch instead of assigning a seperate batch to the centered eval
-            print("WARNING: CENTERED EVAL WON'T WORK WELL UNLESS YOU REUSE BATCHES!")
-        
-        if self.do_centered_eval:
+        if self.config.centered_eval:
             self.center = Genome()
             self.genomes.append(self.center)
+            if dataset.force_reuse_batches == False:
+                print("WARNING: CENTERED EVAL WON'T WORK WELL UNLESS YOU REUSE BATCHES!")
 
         self.wandb_project = wandb_project
         self.validate_every = validate_every
@@ -99,20 +86,18 @@ class SimpleTrainer:
                     "perturb_chain": ", ".join([obj.__class__.__name__ for obj in optimizer.perturb_chain]),
                     "inverted_perturb_chain": ", ".join([obj.__class__.__name__ for obj in optimizer.inverted_perturb_chain]),
                     "update_chain": ", ".join([obj.__class__.__name__ for obj in optimizer.update_chain]),
-                    "population_size": optimizer.population_size,
-                    "mirror": optimizer.mirror,
-                    "total_steps": optimizer.total_steps,
-                    "learning_rate": optimizer.learning_rate,
-                    "perturb_scale": optimizer.perturb_scale,
-                    "do_centered_eval": self.do_centered_eval,
-                    "pass_true_mean": self.pass_true_mean,
-                    "dynamic_perturbation_target": self.dynamic_perturbation_target,
-                    "dynamic_perturbation_smoothing_factor": self.dynamic_perturbation_smoothing_factor,
-                    "skip_step_ratio": self.skip_step_ratio,
+                    "population_size": self.config.population_size,
+                    "mirror": self.config.mirror,
+                    "total_steps": self.config.total_steps,
+                    "learning_rate": self.config.learning_rate,
+                    "perturb_scale": self.config.perturb_scale,
+                    "do_centered_eval": self.config.centered_eval,
+                    "pass_true_mean": self.config.pass_true_mean,
+                    "dynamic_perturbation_target": self.config.dynamic_perturb_target,
+                    "dynamic_perturbation_smoothing_factor": self.config.dynamic_perturb_smoothing_factor,
                     "optimizer": optimizer.optimizer_name,
-                    "optimizer_mean_norm": optimizer.norm_by_mean,
-                    "warmup_steps": optimizer.warmup_steps,
-                    "scheduler": optimizer.scheduler,
+                    "warmup_steps": optimizer.config.warmup_steps,
+                    "lr_scheduler": optimizer.config.lr_scheduler,
                     "batch_size": dataset.batch_size,
                     "dataset_train_len": len(dataset.pairs_train),
                     "dataset_val_len": len(dataset.pairs_test),
@@ -146,16 +131,16 @@ class SimpleTrainer:
         Beguns by yielding the next set of data points, which are sent to the backend alongside the genomes for evaluation.
         Then, after evaluation, the dataset is used to score the genomes, which are passed to the optimizer to perform the gradient update.
         Lastly, a new generation is created, and statistics are logged (including val, if applicable)."""
-        while self.iteration_count < self.optimizer.total_steps:
+        while self.iteration_count < self.config.total_steps:
             self.iteration_count += 1
 
             start_time = time.time()
 
             # Evaluation
-            inputs = self.dataset.next(population_size=self.optimizer.population_size, mirror=self.optimizer.mirror, center=self.do_centered_eval)
+            inputs = self.dataset.next(population_size=self.config.population_size, mirror=self.config.mirror, center=self.config.centered_eval)
             self.backend.generate_outputs(self.genomes, self.optimizer, self.dataset.suffix, inputs)
             self.dataset.score_all(self.genomes)
-            if self.do_centered_eval:
+            if self.config.centered_eval:
                 self.genomes.remove(self.center)
             end_time = time.time()
 
@@ -163,123 +148,84 @@ class SimpleTrainer:
             genome_rewards = [g.historical_rewards[-1] for g in self.genomes]
             reward_mean = sum(genome_rewards) / len(self.genomes)
             reward_std = (sum([(r - reward_mean) ** 2 for r in genome_rewards]) / len(self.genomes)) ** 0.5
-        
+            self.log_train_stats(self.genomes, end_time - start_time, reward_mean, reward_std)
+            
             # Gradient update
-            skip = False
-            if self.do_centered_eval:
+            if self.config.centered_eval:
                 center_reward = self.center.historical_rewards[-1]
-                better_count = sum(1 for genome in self.genomes if genome.historical_rewards[-1] > center_reward)
-                proportion_better = better_count / len(self.genomes)
-
-                # Skip the update if the ratio is too low
-                if proportion_better >= self.skip_step_ratio:
-                    self.log_train_stats(self.genomes, end_time - start_time, reward_mean, reward_std)
-                    if self.pass_true_mean:
-                        self.optimizer.update_self(self.genomes, self.iteration_count, true_reward_mean=center_reward)
-                    else:
-                        self.optimizer.update_self(self.genomes, self.iteration_count)
-                    self.backend.update(self.optimizer)
-                else:
-                    print(f"#-- Skipping update: better ratio ({proportion_better:.2f}) < threshold ({self.skip_step_ratio}) --#")
-                    self.iteration_count -= 1
-                    skip = True
+                self.optimizer.update_self(self.genomes, self.iteration_count, true_reward_mean=center_reward if self.config.pass_true_mean else None)
                     
                 degradation = (center_reward - reward_mean) / (reward_std + 1e-8)
-                std_scale_factor = math.exp(self.dynamic_perturbation_smoothing_factor * math.tanh(self.dynamic_perturbation_target - degradation))
-                self.optimizer.perturb_scale *= std_scale_factor
+                std_scale_factor = math.exp(self.config.dynamic_perturb_smoothing_factor * math.tanh(self.config.dynamic_perturb_target - degradation))
+                self.config.perturb_scale *= std_scale_factor
             else:
-                self.log_train_stats(self.genomes, end_time - start_time, reward_mean, reward_std)
                 self.optimizer.update_self(self.genomes, self.iteration_count)
-                self.backend.update(self.optimizer)
-            if not skip:
-                # Validate
-                if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
-                    new_genome = Genome()
-                    start_time = time.time()
-                    prompts = self.dataset.get_test_set()
-                    self.backend.generate_outputs([new_genome], self.optimizer, self.dataset.suffix, prompts)
-                    self.dataset.score_all([new_genome])
-                    end_time = time.time()
-                    print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
-                    self.log_val_stats(new_genome, end_time - start_time)
-                
-                # Save checkpoint
-                if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:
-                    base, ext = os.path.splitext(self.checkpoint_path)
-                    path = f"{base}_step_{self.iteration_count}{ext}"
-                    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-                    self.save_model_seeds(path)
+            self.backend.update(self.optimizer)
+            self.update_history['genomes'].append(self.optimizer.get_representative().get_data())
+            self.update_history['step'].append(self.optimizer.last_step)
+            self.update_history['lr'].append(self.optimizer.last_lr)
+            self.update_history['std'].append(self.config.perturb_scale)
+            self.update_history['rstd'].append(self.optimizer.last_rstd)
+            
+            # Validate
+            if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
+                new_genome = Genome()
+                start_time = time.time()
+                prompts = self.dataset.get_test_set()
+                self.backend.generate_outputs([new_genome], self.optimizer, self.dataset.suffix, prompts)
+                self.dataset.score_all([new_genome])
+                end_time = time.time()
+                print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
+                self.log_val_stats(new_genome, end_time - start_time)
+            
+            # Save checkpoint
+            if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:
+                base, ext = os.path.splitext(self.checkpoint_path)
+                path = f"{base}_step_{self.iteration_count}{ext}"
+                os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+                self.save_history(path)
             
             # Create next generation of genomes
-            self.genomes = [Genome() for _ in range(self.optimizer.population_size)]
+            self.genomes = [Genome() for _ in range(self.config.population_size)]
             for genome in self.genomes:
                 genome.mutate_seed(1)
-            if self.optimizer.mirror:
+            if self.config.mirror:
                 mirrored_genomes = []
                 for genome in self.genomes:
                     mirrored_genomes.append(genome.get_mirrored())
                 self.genomes.extend(mirrored_genomes)
-            if self.do_centered_eval:
+            if self.config.centered_eval:
                 self.center = Genome()
                 self.genomes.append(self.center)
 
-    def save_model_seeds(self, filepath: str):
-        """Get the actual optimizer history from the optimizer (which has some structure and contains genomes), convert the genomes to a json-serializable format, and save it to a file."""
-        history = self.optimizer.get_update_history()
-
-        def serialize_structure(obj):
-            """Recursively convert an arbitrary structure to a json-serializable format."""
-            if isinstance(obj, Genome):
-                return {
-                    "seeds": obj.seeds,
-                    "perturb_scales": obj.perturb_scales,
-                    "historical_rewards": obj.historical_rewards,
-                    "starting_index": obj.starting_index,
-                    "__is_genome__": True
-                }
-            elif isinstance(obj, list):
-                return [serialize_structure(item) for item in obj]
-            elif isinstance(obj, tuple):
-                return tuple(serialize_structure(item) for item in obj)
-            elif isinstance(obj, dict):
-                return {k: serialize_structure(v) for k, v in obj.items()}
-            else:
-                return obj
-
-        serializable_history = serialize_structure(history)
-
+    def save_history(self, filepath: str):
+        """Get the update history from the optimizer, convert the genomes to a json-serializable format, and save it to a file."""
         with open(filepath, "w") as f:
-            json.dump(serializable_history, f, indent=4)
+            json.dump(self.update_history, f, indent=4)
         print(f"#-- Successfully saved model seeds to {filepath} --#")
 
     def restore_model(self, filepath: str):
         """Load the optimizer history from a file, convert the genomes back to their original format, and restore the optimizer."""
+        if self.iteration_count != 0:
+            raise RuntimeError("The trainer, optimizer, and backend must be in a blank state to properly restore the model!")
         with open(filepath, 'r') as f:
             data = json.load(f)
 
-        def reconstruct_structure(obj):
-            """Recursively convert a json-serializable format back to its original format."""
-            if isinstance(obj, dict):
-                if obj.get("__is_genome__") is True or ("seeds" in obj and "perturb_scales" in obj):
-                    genome = Genome()
-                    genome.seeds = obj.get("seeds", [])
-                    genome.perturb_scales = obj.get("perturb_scales", [])
-                    genome.historical_rewards = obj.get("historical_rewards", [float('-inf')] * len(genome.seeds))
-                    genome.starting_index = obj.get("starting_index", 0)
-                    return genome
-                return {k: reconstruct_structure(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [reconstruct_structure(item) for item in obj]
-            else:
-                return obj
-
-        history = reconstruct_structure(data)
-
-        self.optimizer.restore_from_history(history, self.backend)
-        self.iteration_count = len(history)
+        self.update_history = data
+        
+        for step_genome, step, lr, std, rstd in zip([Genome().from_data(g) for g in data['genomes']], data['step'], data['lr'], data['std'], data['rstd']):
+            self.optimizer.rep_genome = step_genome            
+            self.optimizer.last_step = step
+            self.optimizer.last_lr = lr
+            self.config.perturb_scale = std
+            self.optimizer.last_rstd = rstd
+            self.backend.update(self.optimizer)
+            
+        self.optimizer.rep_genome = Genome()
+        self.iteration_count = self.update_history['step'][-1] if self.update_history['step'] else 0
         
         print(f"#-- Successfully loaded model seeds from {filepath}. Resuming from iteration {self.iteration_count} --#")
-
+        
     def log_train_stats(self, genomes: List[Genome], time_taken: float, reward_mean: float, reward_std: float):
         """Log the training statistics for the current iteration."""
         average_response_length = sum([sum(len(response.split()) for response in genome.latest_outputs) for genome in genomes]) / len(genomes) / len(genomes[0].latest_outputs)
@@ -308,16 +254,16 @@ class SimpleTrainer:
                     f"train/average_response_length": average_response_length,
                     f"train/samples": sample_table,
                     f"train/learning_rate": self.optimizer.get_lr(self.iteration_count),
-                    f"train/perturbation_scale": self.optimizer.perturb_scale,
+                    f"train/perturbation_scale": self.config.perturb_scale,
                     f"iteration_count": self.iteration_count
                 }
-                if self.do_centered_eval:
+                if self.config.centered_eval:
                     center_reward = self.center.historical_rewards[-1]
                     better_count = sum(1 for genome in self.genomes if genome.historical_rewards[-1] > center_reward)
                     proportion_better = better_count / len(self.genomes)
                     
                     degradation = (center_reward - reward_mean) / (reward_std + 1e-8)
-                    std_scale_factor = math.exp(self.dynamic_perturbation_smoothing_factor * math.tanh(self.dynamic_perturbation_target - degradation))
+                    std_scale_factor = math.exp(self.config.dynamic_perturb_smoothing_factor * math.tanh(self.config.dynamic_perturb_target - degradation))
                 
                     log_data[f"train/centered_reward"] = center_reward
                     log_data[f"train/proportion_better"] = proportion_better
@@ -334,7 +280,7 @@ class SimpleTrainer:
     def log_val_stats(self, genome: Genome, time_taken: float):
         """Log the validation statistics for the current iteration."""
         score = genome.historical_rewards[-1]
-        score_stddev = (sum((genome.latest_rewards[i] - score) ** 2 for i in range(len(genome.latest_rewards))) / (len(genome.latest_rewards)-1)) ** 0.5
+        score_stddev = (sum((genome.latest_rewards[i] - score) ** 2 for i in range(len(genome.latest_rewards))) / (len(genome.latest_rewards)-1)) ** 0.5 if len(genome.latest_rewards) > 1 else 0
         average_response_length = sum(len(response.split()) for response in genome.latest_outputs) / len(genome.latest_outputs)
         sample_response = genome.latest_outputs[0]
         if self.wandb_project is not None and self.wandb_project != "":

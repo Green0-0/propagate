@@ -7,6 +7,8 @@ from propagate.genome import Genome
 from propagate.optimizers.chain import OptimizerChain, Sub_Perturb_Buffer, Add_Perturb_Buffer
 import math
 
+from propagate.training_config import TrainingConfig
+
 class Optimizer():
     """
     The optimizer is responsibly for orchestrating the model update. It contains the hyperparameters, and the manner in which perturbations/gradients are applied to the model. 
@@ -25,45 +27,18 @@ class Optimizer():
     ----------
     optimizer_name : str
         The name of the optimizer.
-    total_steps : int
-        The total number of steps to train for.
-    learning_rate : float
-        The learning rate of the optimizer.
-    perturb_scale : float
-        The scale of the perturbation (sigma).
-    population_size : int
-        The number of genomes evaluated per step during optimization.
-    mirror : bool
-        Whether or not to mirror genomes. Doubles the population if true.
-    warmup_steps : int
-        The number of warmup steps.
+    config : TrainingConfig
+        The config for training.
     perturb_chain : List[OptimizerChain]
         The optimizer path for perturbation.
     update_chain : List[OptimizerChain]
         The optimizer path for updating the model.
     inverted_perturb_chain : List[OptimizerChain]
         The optimizer path for reversing the perturbation. Automatically generated if not provided.
-    scheduler : str
-        The learning rate scheduler to use.
-    norm_by_mean : bool
-        Whether to normalize the gradient by the mean reward. This is required for non-mirrored training, but may cause issues during mirrored training.
-    rank_norm_rewards : bool
-        Whether to normalize the rewards by rank. For example, the worse genome becomes -0.5, the next genome is -0.4, and the best is 0.5.
     """
-    def __init__(self, optimizer_name, total_steps: int, learning_rate: float, perturb_scale: float, population_size: int, mirror: bool, perturb_chain: List[OptimizerChain], update_chain: List[OptimizerChain], norm_by_mean: bool, rank_norm_rewards: bool, inverted_perturb_chain: List[OptimizerChain] = None, warmup_steps: int = 0, scheduler: str = "none"):
+    def __init__(self, optimizer_name, config: TrainingConfig, perturb_chain: List[OptimizerChain], update_chain: List[OptimizerChain], inverted_perturb_chain: List[OptimizerChain] = None):
         self.optimizer_name = optimizer_name
-        self.total_steps = total_steps
-        self.learning_rate = learning_rate
-        self.perturb_scale = perturb_scale
-        self.population_size = population_size
-        self.mirror = mirror
-        if mirror:
-            print("#-- Mirror mode enabled: population size doubled. --#")
-            
-        self.last_lr = learning_rate
-        self.last_step = 1
-        self.last_rstd = 1
-        
+        self.config = config
         self.perturb_chain = perturb_chain
         self.update_chain = update_chain
         if inverted_perturb_chain is None:
@@ -79,15 +54,11 @@ class Optimizer():
         else:
             self.inverted_perturb_chain = inverted_perturb_chain
         
-        self.warmup_steps = warmup_steps
-        self.scheduler = scheduler
-        self.norm_by_mean = norm_by_mean
-        self.rank_norm_rewards = rank_norm_rewards
-        if self.norm_by_mean and self.rank_norm_rewards:
-            raise ValueError("Please do not norm by mean and norm by rank!")
-        
         self.rep_genome = Genome()
-        self.update_history = []
+        
+        self.last_lr = config.learning_rate
+        self.last_step = 1
+        self.last_rstd = 1
     
     def get_lr(self, current_step: int) -> float:
         """
@@ -98,21 +69,25 @@ class Optimizer():
         Returns:
             float: The learning rate.
         """
-        if self.warmup_steps > 0 and current_step < self.warmup_steps:
-            return self.learning_rate * (current_step / self.warmup_steps)
+        if self.config.warmup_steps > 0 and current_step < self.config.warmup_steps:
+            return self.config.learning_rate * (current_step / self.config.warmup_steps)
 
-        t = max(0.0, min(1.0, (current_step - self.warmup_steps) / (self.total_steps - self.warmup_steps)))
+        t = max(0.0, min(1.0, (current_step - self.config.warmup_steps) / (self.config.total_steps - self.config.warmup_steps)))
 
-        sched = (self.scheduler or "none").lower()
+        sched = (self.config.lr_scheduler or "none").lower()
         if sched in ("none", "constant"):
-            return self.learning_rate
+            return self.config.learning_rate
         if sched.startswith("linear"):
-            return self.learning_rate * (1.0 - t)
+            return self.config.learning_rate * (1.0 - t)
         if sched.startswith("cosine"):
-            return self.learning_rate * 0.5 * (1.0 + math.cos(math.pi * t))
+            return self.config.learning_rate * 0.5 * (1.0 + math.cos(math.pi * t))
         if sched.startswith("exponential"):
-            return self.learning_rate * math.exp(-2 * math.sqrt(t))
-        raise ValueError(f"Unknown scheduler: {self.scheduler}")
+            return self.config.learning_rate * math.exp(-2 * math.sqrt(t))
+        raise ValueError(f"Unknown scheduler: {self.config.lr_scheduler}")
+    
+    def get_representative(self) -> Genome:
+        """Returns a copy of the representative genome."""
+        return self.rep_genome
     
     def update_self(self, genomes: List[Genome], current_step: int, true_reward_mean: float = None):
         """
@@ -143,7 +118,7 @@ class Optimizer():
         
         # Create centered ranks for genomes
         n_genomes = len(genomes)
-        if self.rank_norm_rewards:
+        if self.config.rank_norm_rewards:
             sorted_indices = sorted(range(n_genomes), key=lambda i: rewards[i])
             centered_ranks = [0.0] * n_genomes
             if n_genomes > 1:
@@ -156,10 +131,10 @@ class Optimizer():
             assert len(g.latest_rewards) > 0, "Genomes has no rewards for gradient calculation! Did you forget to generate data and evaluate first?"
 
             # Calculate the weighting of the gradient for that genome (high reward means more influence)
-            if self.rank_norm_rewards:
+            if self.config.rank_norm_rewards:
                 grad_scale = centered_ranks[c]
             else:
-                grad_scale = g.historical_rewards[-1] - (true_mean if self.norm_by_mean else 0)
+                grad_scale = g.historical_rewards[-1] - (0 if self.config.mirror else true_mean)
             
             for i, seed in enumerate(g.seeds):
                 weight = g.perturb_scales[i]
@@ -183,8 +158,7 @@ class Optimizer():
             self.rep_genome.perturb_scales.append(weight)
             self.rep_genome.historical_rewards.append(float('-inf'))
         self.rep_genome.starting_index = len(self.rep_genome.seeds)
-        self.update_history.append(copy.deepcopy(self.rep_genome))
-
+    
     def apply_perturb(self, invert, genome: Genome, tensor: torch.Tensor, random_offset: int, parameter_id, state: Dict, lr_scalar: float = 1, do_log: bool = False):
         """
         Apply the perturbation to the given genome. This must be called INTERNALLY through vLLM, and should never be used outside of a vLLM worker.
@@ -200,12 +174,7 @@ class Optimizer():
             do_log (bool, optional): Used to force only rank 0 (gpu 0) to log, for very special logs such as grad norms.
         """
         # Setup state variables from optimizer global state
-        state["step"] = self.last_step
-        state["lr"] = self.last_lr
-        state["std"] = self.perturb_scale
-        state["rstd"] = self.last_rstd
-        state["population_size"] = self.population_size
-        state["lr_scalar"] = lr_scalar
+        self.set_state(state, lr_scalar)
         
         if invert:
             # Restore from perturbation
@@ -229,35 +198,16 @@ class Optimizer():
             do_log (bool, optional): Whether to log the gradient. Defaults to False.
         """
         # Setup state variables from optimizer global state
-        state["step"] = self.last_step
-        state["lr"] = self.last_lr
-        state["std"] = self.perturb_scale
-        state["rstd"] = self.last_rstd
-        state["population_size"] = self.population_size
-        state["lr_scalar"] = lr_scalar
+        self.set_state(state, lr_scalar)
         
         # Apply gradient update
         for p in self.update_chain:
             p.apply(self.rep_genome, state, parameter_id, tensor, random_offset, do_log)
             
-    def get_representative(self) -> Genome:
-        """Returns the representative genome."""
-        return self.rep_genome
-    
-    def get_update_history(self) -> List[Genome]:
-        """Returns the representative genomes of each update step."""
-        return self.update_history
-    
-    def restore_from_history(self, history, backend):
-        """Restores the latest genome's state by tracing the updates from the representative genomes in the provided history. The genome is restored into the backend, meaning that the backend's weights will be modified.
-        
-        WARNING: Will not restore the optimizer state!
-        
-        Args:
-            history (List[Genome]): The history to restore from.
-            backend (Backend): The backend to use for restoring the genome."""
-        self.update_history = copy.deepcopy(history)
-        for step_genome in history:
-            self.rep_genome = step_genome
-            backend.update(self)
-        self.rep_genome = Genome()
+    def set_state(self, state: Dict, lr_scalar: float):
+        state["step"] = self.last_step
+        state["lr"] = self.last_lr
+        state["std"] = self.config.perturb_scale
+        state["rstd"] = self.last_rstd
+        state["population_size"] = self.config.population_size
+        state["lr_scalar"] = lr_scalar
