@@ -2,7 +2,6 @@
 ### In progress:
 - Broadcast sync optimizer state
 - Cleanup lora backend (Check vLLM async)
-- Cleanup trainer, make a universal center eval
 - Update tutorials, model saving
 
 ### Experimental:

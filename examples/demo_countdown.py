@@ -44,7 +44,7 @@ try:
         checkpoint_path="checkpoints/Qwen_Qwen2_5-3B-Instruct.json"
     )
     trainer.train()
-    trainer.backend.save_weights_to_disk("saved_model/Qwen_Qwen2_5-3B-Instruct.pt")
+    # trainer.backend.save_weights_to_disk("saved_model/Qwen_Qwen2_5-3B-Instruct.pt")
     print("#-- Training complete --#")
 finally:
     ray.shutdown()

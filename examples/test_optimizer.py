@@ -54,11 +54,9 @@ try:
                             wandb_project_name="bern_nomirror_centered_fp32_lr25_std0.001",
                             validate_every=10,
                             print_samples=True,
-                            checkpoint_every=1000,
-                            checkpoint_path="checkpoints/Qwen_Qwen2_5-3B-Instruct.json"
     )
     trainer.train()
-    trainer.backend.save_weights_to_disk("saved_model/Qwen_Qwen2_5-3B-Instruct.pt")
+    # trainer.backend.save_weights_to_disk("saved_model/Qwen_Qwen2_5-3B-Instruct.pt")
     print("#-- Training complete --#")
 finally:
     ray.shutdown()

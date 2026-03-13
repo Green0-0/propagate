@@ -137,9 +137,7 @@ def worker_process(storage_url, study_name, mode):
                 wandb_project="propagate_lora_basic_sweeps" if mode == 'lora' else "propagate_basic_sweeps",
                 wandb_project_name=run_name,
                 validate_every=10,
-                print_samples=False,
-                checkpoint_every=1000,
-                checkpoint_path=f"checkpoints/Qwen_{run_name}.json"
+                print_samples=False
             )
 
             try:
