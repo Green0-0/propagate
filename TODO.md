@@ -2,7 +2,7 @@
 ### In progress:
 - Broadcast sync optimizer state
 - Cleanup lora backend (Check vLLM async)
-- Update tutorials, model saving
+- Update tutorials
 
 ### Experimental:
 - New optimizer chains, NAdam, Muon, fp32, rank-centering, SignSGD

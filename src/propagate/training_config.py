@@ -24,9 +24,9 @@ class TrainingConfig:
     scheduler : str
         The learning rate scheduler to use.
     centered_eval : bool, optional
-        Whether or not to do one extra eval on the unperturbed gradient. Enables centered eval and dyanmic perturbation scales. Defaults to False.
+        Whether or not to do one extra eval on the unperturbed gradient. Enables centered eval and dyanmic perturbation scales. Defaults to True.
     pass_true_mean : bool, optional
-        Whether or not to pass the centered eval mean to the optimizer as the true mean for gradient calculation when norm_by_mean is set to true. Defaults to True.
+        Whether or not to pass the centered eval mean to the optimizer as the true mean for gradient calculation when norm_by_mean is set to true. Defaults to False.
     dynamic_perturbation_target : float, optional
         The amount we want our perturbed rewards to drift from the center. Defaults to 0.1.
     dynamic_perturbation_smoothing_factor : float, optional 

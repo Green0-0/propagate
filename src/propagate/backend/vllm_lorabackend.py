@@ -260,6 +260,8 @@ class VLLMBackendLoRA(Backend):
         self.population_size = config.population_size
         if config.mirror:
             self.population_size = self.population_size * 2
+        if config.centered_eval:
+            self.population_size += 1
         max_loras_per_worker = math.ceil(self.population_size / self.NUM_GPUS)
 
         self.inference_engines = [
