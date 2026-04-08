@@ -5,7 +5,7 @@ import os
 import time
 import traceback
 
-def worker_process(storage_url, study_name, mode):
+def worker_process(storage_url, study_name, mode, pruner):
     """
     Runs in total isolation. Connects to the DB, runs 1 trial, and dies cleanly.
     """
@@ -28,7 +28,7 @@ def worker_process(storage_url, study_name, mode):
         torch.cuda.empty_cache()
 
         # 2. Connect to the existing study database
-        study = optuna.load_study(study_name=study_name, storage=storage_url)
+        study = optuna.load_study(study_name=study_name, storage=storage_url, pruner=pruner)
 
         def objective(trial):
             # --- HYPERPARAMETER SEARCH SPACE ---
@@ -44,14 +44,14 @@ def worker_process(storage_url, study_name, mode):
                     centered_eval_norm = trial.suggest_categorical("centered_eval_norm", [True, False])
                 else:
                     centered_eval_norm = False
-                dynamic_perturbation_smoothing_factor = trial.suggest_float("dynamic_perturbation_smoothing_factor", 0.01, 1)
-                dynamic_perturbation_target = trial.suggest_float("dynamic_perturbation_target", 0.05, 1)
+                dynamic_perturbation_smoothing_factor = trial.suggest_float("dynamic_perturbation_smoothing_factor", 0.05, 0.5)
+                dynamic_perturbation_target = trial.suggest_float("dynamic_perturbation_target", 0.05, 0.5)
             else:
                 centered_eval_norm = False
                 dynamic_perturbation_smoothing_factor = 0
                 dynamic_perturbation_target = 0.1
                 
-            lr = trial.suggest_float("lr", 0.01, 100, log=True)
+            lr = trial.suggest_float("lr", 0.5, 75, log=True)
             
             # Branched parameters based on architecture (LoRA vs Full)
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
@@ -59,7 +59,7 @@ def worker_process(storage_url, study_name, mode):
                 batch_size = 100
                 population_size = 56 // (2 if mirror == True else 1)
                 
-                perturb_scale = trial.suggest_float("std_lora", 0.005, 0.5)
+                perturb_scale = trial.suggest_float("std_lora", 0.005, 0.25)
                 perturb_target = trial.suggest_categorical("perturb_target", ["ab", "b-"])
                 lora_normscale = trial.suggest_categorical("lora_normscale", [True, False])
                 run_name = f"{perturb_target}_{noise_type}_t{trial.number}_lr{lr}_std{perturb_scale}_{norm_type}"
@@ -78,7 +78,7 @@ def worker_process(storage_url, study_name, mode):
                 batch_size = 200
                 population_size = 28 // (2 if mirror == True else 1)
                 
-                perturb_scale = trial.suggest_float("std_full", 0.0001, 0.01, log=True)
+                perturb_scale = trial.suggest_float("std_full", 0.0001, 0.005, log=True)
                 run_name = f"{noise_type}_t{trial.number}_{lr}_std{perturb_scale}_{norm_type}"
                 backend = VLLMBackend(
                     model_name="Qwen/Qwen2.5-3B-Instruct", 
@@ -167,16 +167,16 @@ def worker_process(storage_url, study_name, mode):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Optuna Sweep for Propagate")
     parser.add_argument("--mode", type=str, choices=["lora", "non_lora"], required=True, help="Which architecture to sweep")
-    parser.add_argument("--trials", type=int, default=50, help="Total trials to run on this node")
+    parser.add_argument("--trials", type=int, default=100, help="Total trials to run on this node")
     args = parser.parse_args()
 
     STORAGE_URL = f"sqlite:///sweep_{args.mode}.db"
     STUDY_NAME = f"study_{args.mode}"
 
     pruner = optuna.pruners.PercentilePruner(
-        percentile=60.0,
+        percentile=50.0,
         n_warmup_steps=100,
-        n_min_trials=5 
+        n_min_trials=20 
     )
     
     study = optuna.create_study(
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     for i in range(args.trials):
         print(f"\n--- Initiating Trial {i+1}/{args.trials} ---")
         
-        p = ctx.Process(target=worker_process, args=(STORAGE_URL, STUDY_NAME, args.mode))
+        p = ctx.Process(target=worker_process, args=(STORAGE_URL, STUDY_NAME, args.mode, pruner))
         p.start()
         p.join()
         

@@ -179,6 +179,9 @@ class OptunaTrainer:
                 print(f"#-- Validation for iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
                 latest_val_score = new_genome.historical_rewards[-1]
                 self.log_val_stats(new_genome, end_time - start_time)
+                
+                optuna_trial.report(new_genome.historical_rewards[-1], self.iteration_count)
+                
                 if self.iteration_count == 10:
                     if new_genome.historical_rewards[-1] < 0.3:
                         print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
@@ -187,7 +190,7 @@ class OptunaTrainer:
                     if new_genome.historical_rewards[-1] < 0.35:
                         print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
                         raise optuna.TrialPruned()
-                optuna_trial.report(new_genome.historical_rewards[-1], self.iteration_count)
+                
                 if optuna_trial.should_prune():
                     print(f"Run survived early cuts but failed Step 100 check. Pruned.")
                     raise optuna.TrialPruned()
