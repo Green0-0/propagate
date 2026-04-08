@@ -23,12 +23,24 @@ def worker_process(storage_url, study_name, mode, pruner):
         import ray
         import gc
         import wandb
+        import optuna
 
         gc.collect()
         torch.cuda.empty_cache()
-
-        # 2. Connect to the existing study database
-        study = optuna.load_study(study_name=study_name, storage=storage_url, pruner=pruner)
+        
+        sampler = optuna.samplers.TPESampler(
+            n_startup_trials=25,
+            multivariate=True,
+            group=True,
+            seed=None
+        )
+        
+        study = optuna.load_study(
+            study_name=study_name, 
+            storage=storage_url, 
+            pruner=pruner,
+            sampler=sampler
+        )
 
         def objective(trial):
             # --- HYPERPARAMETER SEARCH SPACE ---
@@ -168,10 +180,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Optuna Sweep for Propagate")
     parser.add_argument("--mode", type=str, choices=["lora", "non_lora"], required=True, help="Which architecture to sweep")
     parser.add_argument("--trials", type=int, default=100, help="Total trials to run on this node")
+    parser.add_argument("--force-explore", action="store_true", help="Enqueue trials to force exploration of ignored hyperparameters")
     args = parser.parse_args()
 
     STORAGE_URL = f"sqlite:///sweep_{args.mode}.db"
     STUDY_NAME = f"study_{args.mode}"
+
+    # Define Sampler with multivariate and startup trial protections
+    sampler = optuna.samplers.TPESampler(
+        n_startup_trials=25,
+        seed=None,
+        multivariate=True,
+        group=True
+    )
 
     pruner = optuna.pruners.PercentilePruner(
         percentile=50.0,
@@ -184,8 +205,31 @@ if __name__ == "__main__":
         study_name=STUDY_NAME, 
         storage=STORAGE_URL, 
         load_if_exists=True,
+        sampler=sampler,
         pruner=pruner
     )
+
+    # --- ENQUEUE FORCED TRIALS ---
+    if args.force_explore:
+        print("\n#--- Enqueuing forced exploration trials ---#")
+        
+        # Both modes
+        for _ in range(10): study.enqueue_trial({"noise_type": "gaus"})
+        for _ in range(10): study.enqueue_trial({"norm_type": "std_norm"})
+        for _ in range(10): study.enqueue_trial({"scheduler": "exponential"})
+        for _ in range(10): study.enqueue_trial({"scheduler": "constant"})
+        
+        # LoRA only constraints
+        if args.mode == "lora":
+            for _ in range(20): study.enqueue_trial({"reuse_batches": True})
+            for _ in range(5):  study.enqueue_trial({"perturb_target": "ab"})
+            for _ in range(10): study.enqueue_trial({"lora_normscale": False})
+            
+        # Non-LoRA only constraints
+        elif args.mode == "non_lora":
+            for _ in range(10): study.enqueue_trial({"reuse_batches": False})
+            
+        print("Successfully enqueued partial parameter trials. The sampler will fill in the rest.")
 
     print(f"\n#--- Starting {args.mode.upper()} Sweep ({args.trials} trials) ---#")
     
