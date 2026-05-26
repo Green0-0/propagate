@@ -44,7 +44,7 @@ class OptunaTrainer:
 
     wandb_project: str
 
-    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, wandb_project: str = None, wandb_project_name: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json"):
+    def __init__(self, optimizer: Optimizer, backend: Backend, dataset: Dataset, wandb_project: str = None, wandb_project_name: str = None, validate_every: int = 0, print_samples: bool = False, checkpoint_every: int = 0, checkpoint_path: str = "checkpoints/model.json", min_val_reward: float = 0.25, start_prune_min_reward_iter: int = 10):
         self.config = optimizer.config
         backend.startup(self.config)
         
@@ -79,6 +79,8 @@ class OptunaTrainer:
         self.print_samples = print_samples
         self.checkpoint_every = checkpoint_every
         self.checkpoint_path = checkpoint_path
+        self.min_val_reward = min_val_reward
+        self.start_prune_min_reward_iter = start_prune_min_reward_iter
 
         if self.wandb_project is not None and self.wandb_project != "":
             try:
@@ -182,12 +184,8 @@ class OptunaTrainer:
                 
                 optuna_trial.report(new_genome.historical_rewards[-1], self.iteration_count)
                 
-                if self.iteration_count == 10:
-                    if new_genome.historical_rewards[-1] < 0.3:
-                        print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
-                        raise optuna.TrialPruned()
-                if self.iteration_count == 20:
-                    if new_genome.historical_rewards[-1] < 0.35:
+                if self.iteration_count >= self.start_prune_min_reward_iter:
+                    if new_genome.historical_rewards[-1] < self.min_val_reward:
                         print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
                         raise optuna.TrialPruned()
                 

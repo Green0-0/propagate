@@ -1,11 +1,36 @@
 import argparse
 import optuna
+from optuna.storages import JournalStorage, JournalFileStorage, JournalFileOpenLock
 import multiprocessing as mp
 import os
 import time
 import traceback
 
-def worker_process(storage_url, study_name, mode, pruner):
+def get_or_create_study(study_name, journal_path, direction="maximize"):
+    directory = os.path.dirname(journal_path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    lock = JournalFileOpenLock(f"{journal_path}.lock")
+    storage = JournalStorage(JournalFileStorage(journal_path, lock_obj=lock))
+    sampler = optuna.samplers.TPESampler(
+        n_startup_trials=10,
+        multivariate=True,
+        constant_liar=True,
+    )
+    pruner = optuna.pruners.HyperbandPruner(
+        min_resource=10,
+        reduction_factor=4,
+    )
+    return optuna.create_study(
+        study_name=study_name,
+        storage=storage,
+        load_if_exists=True,
+        direction=direction,
+        sampler=sampler,
+        pruner=pruner,
+    )
+
+def worker_process(journal_path, study_name, mode):
     """
     Runs in total isolation. Connects to the DB, runs 1 trial, and dies cleanly.
     """
@@ -28,19 +53,7 @@ def worker_process(storage_url, study_name, mode, pruner):
         gc.collect()
         torch.cuda.empty_cache()
         
-        sampler = optuna.samplers.TPESampler(
-            n_startup_trials=25,
-            multivariate=True,
-            group=True,
-            seed=None
-        )
-        
-        study = optuna.load_study(
-            study_name=study_name, 
-            storage=storage_url, 
-            pruner=pruner,
-            sampler=sampler
-        )
+        study = get_or_create_study(study_name, journal_path)
 
         def objective(trial):
             # --- HYPERPARAMETER SEARCH SPACE ---
@@ -149,7 +162,9 @@ def worker_process(storage_url, study_name, mode, pruner):
                 wandb_project="propagate_lora_basic_sweeps" if mode == 'lora' else "propagate_basic_sweeps",
                 wandb_project_name=run_name,
                 validate_every=10,
-                print_samples=False
+                print_samples=False,
+                min_val_reward=0.25,
+                start_prune_min_reward_iter=10
             )
 
             try:
@@ -183,31 +198,10 @@ if __name__ == "__main__":
     parser.add_argument("--force-explore", action="store_true", help="Enqueue trials to force exploration of ignored hyperparameters")
     args = parser.parse_args()
 
-    STORAGE_URL = f"sqlite:///sweep_{args.mode}.db"
+    JOURNAL_PATH = f"sweep_{args.mode}.journal"
     STUDY_NAME = f"study_{args.mode}"
 
-    # Define Sampler with multivariate and startup trial protections
-    sampler = optuna.samplers.TPESampler(
-        n_startup_trials=25,
-        seed=None,
-        multivariate=True,
-        group=True
-    )
-
-    pruner = optuna.pruners.PercentilePruner(
-        percentile=50.0,
-        n_warmup_steps=100,
-        n_min_trials=20 
-    )
-    
-    study = optuna.create_study(
-        direction="maximize", 
-        study_name=STUDY_NAME, 
-        storage=STORAGE_URL, 
-        load_if_exists=True,
-        sampler=sampler,
-        pruner=pruner
-    )
+    study = get_or_create_study(STUDY_NAME, JOURNAL_PATH)
 
     # --- ENQUEUE FORCED TRIALS ---
     if args.force_explore:
@@ -238,7 +232,7 @@ if __name__ == "__main__":
     for i in range(args.trials):
         print(f"\n--- Initiating Trial {i+1}/{args.trials} ---")
         
-        p = ctx.Process(target=worker_process, args=(STORAGE_URL, STUDY_NAME, args.mode, pruner))
+        p = ctx.Process(target=worker_process, args=(JOURNAL_PATH, STUDY_NAME, args.mode))
         p.start()
         p.join()
         

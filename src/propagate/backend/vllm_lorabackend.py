@@ -3,6 +3,7 @@ from typing import Dict, List
 from uuid import uuid4
 from propagate.backend.backend_abc import Backend
 
+import atexit
 import signal
 import sys
 import os
@@ -311,13 +312,17 @@ class VLLMBackendLoRA(Backend):
                     pass
             ray.shutdown()
 
-        def sig_handler(sig, frame):
+        def exit_handler():
             cleanup()
             try:
                 if hasattr(self, "_lora_tmp_root") and os.path.exists(self._lora_tmp_root):
                     shutil.rmtree(self._lora_tmp_root, ignore_errors=True)
             except Exception as e:
                 print(f"#-- Error cleaning up temp LoRA dir: {e} --#")
+
+        atexit.register(exit_handler)
+
+        def sig_handler(sig, frame):
             sys.exit(0)
 
         signal.signal(signal.SIGINT, sig_handler)
