@@ -19,6 +19,8 @@ dependencies = [
     "datasets",
     "peft",
     "math_verify",
+    "optuna",
+    "optuna-dashboard",
     "plotly",
     "matplotlib"
 ]
