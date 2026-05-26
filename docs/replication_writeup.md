@@ -1,10 +1,10 @@
-[Evolution Strategies at Scale: LLM Fine-Tuning Beyond Reinforcement Learning](https://arxiv.org/abs/2509.24372) was a crazy paper.
+[Evolution Strategies at Scale: LLM Fine-Tuning Beyond Reinforcement Learning](https://arxiv.org/abs/2509.24372) was quite the read.
 
 A bit of background:
 
-In 2017, OpenAI released the paper [Evolution strategies as a scalable alternative to reinforcement learning](https://openai.com/index/evolution-strategies/). It demonstrated that with population sizes in the hundreds or thousands, the ES optimizer can reasonably match RL optimizers. The important part is that ES requires only forward passes, whereas standard RL needs a backward pass to compute the gradients.
+In 2017, OpenAI released "[Evolution strategies as a scalable alternative to reinforcement learning](https://openai.com/index/evolution-strategies/)". It demonstrated that with population sizes in the hundreds or thousands, the ES optimizer can match RL baselines. Importantly, ES requires only forward passes for evaluations, whereas standard RL needs a backward pass to compute the gradients.
 
-The algorithm itself is very simple, generally following these steps:
+The ES algorithm itself is very simple, generally following these steps:
 
 1. Sample some noise under a specified seed and add it to the model. This process is called perturbation.
 2. Assess how well the model performs with that added noise. This is its reward value.
@@ -15,16 +15,16 @@ The algorithm itself is very simple, generally following these steps:
 7. Add your gradient to the model, or run it through an optimizer if desired.
 8. Repeat steps 1-7 until convergence
 
-There are many ways this algorithm is subtly modified, such as subtracting by the noise mean or dividing by its standard deviation. None of these changes how it fundamentally works, and can be thought of as variations on the reward function.
+There are many ways this algorithm is subtly modified, such as by subtracting the noise mean or by dividing by the standard deviation. None of these changes how it fundamentally works, and can be thought of as variations on the reward function.
 
-Your ES hyperparameters are:
+For reference, the ES hyperparameters are:
 - sigma (σ): controls how big the noise that gets added to the model is. I also refer to this as the perturbation scale, or standard deviation (of the noise).
 - population size (N): how many seeds you evaluate before summing to form the gradient.
 - alpha (α): your learning rate. It multiplies the gradient, which is also divided by the sigma (in OpenAI's algorithm) and the population size.
 
 *There might also be a batch size or rollout length to tune, depending on your RL environment.*
 
-While it's great that we can train a model without doing any backward passes (since we only have to run evaluations), its still not practical to train LLMs if it takes hundreds or thousands of evaluations every step.
+While it's great that we can train a model without doing any backward passes, its still not practical to train LLMs if it takes hundreds or thousands of evaluations every step.
 
 Going back to [Evolution Strategies at Scale: LLM Fine-Tuning Beyond Reinforcement Learning](https://arxiv.org/abs/2509.24372), they claim they could get Qwen2.5 to be competitive against GRPO using ES with only a population of 30.
 
