@@ -22,7 +22,8 @@ dependencies = [
     "optuna",
     "optuna-dashboard",
     "plotly",
-    "matplotlib"
+    "matplotlib",
+    "ray"
 ]
 
 [tool.setuptools.packages.find]

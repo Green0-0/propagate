@@ -56,7 +56,7 @@ def worker_process(journal_path, study_name):
         def objective(trial):            
             # --- SWEPT HYPERPARAMETERS ---
             lr = trial.suggest_float("lr", 0.5, 10.0)
-            lambda_val = trial.suggest_float("lambda_val", 1e-6, 1e-1, log=True)
+            lambda_val = trial.suggest_float("lambda_val", 1e-6, 1, log=True)
             exponent = trial.suggest_float("exponent", 0.01, 10.0, log=True)
             
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
