@@ -190,7 +190,7 @@ class OptunaTrainer:
                         raise optuna.TrialPruned()
                 
                 if optuna_trial.should_prune():
-                    print(f"Run survived early cuts but failed Step 100 check. Pruned.")
+                    print(f"Run failed to pass Optuna's pruning check at step {self.iteration_count}.")
                     raise optuna.TrialPruned()
             # Save checkpoint
             if self.checkpoint_every > 0 and self.iteration_count > 0 and self.iteration_count % self.checkpoint_every == 0:

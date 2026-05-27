@@ -19,7 +19,8 @@ def get_or_create_study(study_name, journal_path, direction="maximize"):
     )
     pruner = optuna.pruners.HyperbandPruner(
         min_resource=10,
-        reduction_factor=4,
+        max_resource=200,
+        reduction_factor=2,
     )
     return optuna.create_study(
         study_name=study_name,
