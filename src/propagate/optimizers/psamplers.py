@@ -92,6 +92,8 @@ class Elementwise_Deterministic_Sparse_PSampler(PSampler):
         
         return step_noise
 
+# Note: The resamplers do not currently work
+
 class Memorizer(OptimizerChain):
     """Memorizes the current Genome's perturbation status and adds it to a set (to prevent duplicates on different layers) with key 'mem_genomes' in the state dict."""
     def __init__(self):
