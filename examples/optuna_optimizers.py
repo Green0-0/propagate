@@ -155,14 +155,13 @@ def worker_process(journal_path, study_name, optimizer_choice):
         print(f"Worker process encountered an error: {e}")
         traceback.print_exc()
     finally:
-        if 'ray' in locals():
-            ray.shutdown()
+        ray.shutdown()
         gc.collect()
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Optuna Sweep for Propagate Optimizers")
-    parser.add_argument("--trials", type=int, default=10, help="Total trials to run on this node")
+    parser.add_argument("--trials", type=int, default=5, help="Total trials to run on this node")
     parser.add_argument("--optimizer", type=str, choices=["muon", "lion", "momentum"], required=True, help="Optimizer to sweep")
     args = parser.parse_args()
 

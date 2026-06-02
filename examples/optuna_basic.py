@@ -186,9 +186,7 @@ def worker_process(journal_path, study_name, mode):
         print(f"Worker process encountered an error: {e}")
         traceback.print_exc()
     finally:
-        # Failsafe cleanup
-        if 'ray' in locals():
-            ray.shutdown()
+        ray.shutdown()
         gc.collect()
         torch.cuda.empty_cache()
 
