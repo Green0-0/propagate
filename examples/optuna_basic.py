@@ -44,6 +44,7 @@ def worker_process(journal_path, study_name, mode):
         from propagate.training_config import TrainingConfig
         from propagate.optimizers.optimizer import Optimizer
         from propagate.optimizers import chain, chain_adam, chain_adam_seeded, chain_log, chain_misc
+        from propagate.optimizers.psamplers import Gaussian_PSampler, Bernoulli_PSampler
         from vllm import SamplingParams
         import torch
         import ray
@@ -122,13 +123,13 @@ def worker_process(journal_path, study_name, mode):
             # --- SETUP CHAINS ---
             # (Assuming standard chains for this example, branch if needed)
             perturb_chain = [
-                chain.Init_Perturbation_Bernoulli(fp32_accumulate=True) if noise_type == 'bern' else chain.Init_Perturbation_Gaussian(fp32_accumulate=True), 
+                chain.Init_Perturbation(Bernoulli_PSampler(fp32_accumulate=True)) if noise_type == 'bern' else chain.Init_Perturbation(Gaussian_PSampler(fp32_accumulate=True)), 
                 chain.Scale_Perturbation(mul_by_std=True, mul_by_lr_scalar=True), 
                 chain.Add_Perturb_Buffer(), 
                 chain.Delete_Perturb_Buffer()
             ]
             update_chain = [
-                chain.Init_Perturbation_Bernoulli(fp32_accumulate=True) if noise_type == 'bern' else chain.Init_Perturbation_Gaussian(fp32_accumulate=True), 
+                chain.Init_Perturbation(Bernoulli_PSampler(fp32_accumulate=True)) if noise_type == 'bern' else chain.Init_Perturbation(Gaussian_PSampler(fp32_accumulate=True)), 
                 chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, div_by_rstd=(norm_type == "std_norm"), mul_by_std=True, mul_by_lr_scalar=True), 
                 chain.Add_Perturb_Buffer(), 
                 chain.Delete_Perturb_Buffer()

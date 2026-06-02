@@ -120,60 +120,25 @@ class Override_Weights_With_Perturb_Buffer(OptimizerChain):
             raise ValueError("Perturbation buffer does not exist to override?")
         tensor.copy_(state["perturb_buffer"])
         
-class Init_Perturbation_Gaussian(OptimizerChain):
-    """Initializes the perturbation buffer with Gaussian noise. 
-    Warning: The gaussian is multiplied by the weight of the seed. This is important for mirroring (where the weight might be -1), but make sure to not double count the perturbation scale by accident. By default the perturbation is not generated with the perturbation scale, it must be scaled later. 
+class Init_Perturbation(OptimizerChain):
+    """Initializes the perturbation buffer using the provided PSampler.
+    Warning: The perturbation is multiplied by the weight of the seed. This is important for mirroring (where the weight might be -1), but make sure to not double count the perturbation scale by accident. By default the perturbation is not generated with the perturbation scale, it must be scaled later.
 
     Attributes
     ----------
-    fp32_accumulate : bool
-        Whether to accumulate the noise in float32.
+    psampler : PSampler
+        The sampler used to generate the perturbation.
     """
-    def __init__(self, fp32_accumulate: bool = True):
-        self.fp32_accumulate = fp32_accumulate
+    def __init__(self, psampler):
+        self.psampler = psampler
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
         if "perturb_buffer" in state:
             raise ValueError("Perturbation buffer was requested to be generated, but already exists! Did you forget to delete it?")
-        gen = torch.Generator(device=tensor.device)
-        perturbation = torch.zeros_like(tensor, dtype = torch.float32 if self.fp32_accumulate else tensor.dtype)
-        buffer = torch.empty_like(tensor)
-        for seed, weight in zip(source.seeds, source.perturb_scales):
-            gen.manual_seed(int(seed) + random_offset)
-            buffer.normal_(generator=gen)
-            perturbation.add_(buffer, alpha=float(weight))
-        state["perturb_buffer"] = perturbation
-        del buffer
+        state["perturb_buffer"] = self.psampler.sample(source, state, parameter_id, tensor, random_offset, do_log)
 
-class Init_Perturbation_Bernoulli(OptimizerChain):
-    """Initializes the perturbation buffer with Bernoulli/Rademacher noise: {(-center) * 2, (0.5 - center) * 2}.
-    Warning: The bernoulli is multiplied by the weight of the seed. This is important for mirroring (where the weight might be -1), but make sure to not double count the perturbation scale by accident. By default the perturbation is not generated with the perturbation scale, it must be scaled later.
-    
-    Attributes
-    ----------
-    center : float
-        The value to recenter the noise around. Defaults to 0.5, which means we take the standard bernoulli mean, 0.5, and shift it to 0.
-    fp32_accumulate : bool
-        Whether to accumulate the noise in float32.
-    """
-    def __init__(self, center: float = 0.5, fp32_accumulate: bool = True):
-        self.center = center
-        self.fp32_accumulate = fp32_accumulate        
-    
-    @torch.no_grad()
-    def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
-        if "perturb_buffer" in state:
-            raise ValueError("Perturbation buffer was requested to be generated, but already exists! Did you forget to delete it?")
-        gen = torch.Generator(device=tensor.device)
-        perturbation = torch.zeros_like(tensor, dtype = torch.float32 if self.fp32_accumulate else tensor.dtype)
-        buffer = torch.empty_like(tensor)
-        for seed, weight in zip(source.seeds, source.perturb_scales):
-            gen.manual_seed(int(seed) + random_offset)
-            buffer.random_(0, 2, generator=gen).sub_(self.center).mul_(2)
-            perturbation.add_(buffer, alpha=float(weight))
-        state["perturb_buffer"] = perturbation
-        del buffer
+
 
 class Scale_Perturbation(OptimizerChain):
     """Scales the perturbation buffer by various factors. For perturbation, the default is to only scale with ``mul_by_std``, while for gradient update you might consider various mixtures. It is recommended to always set ``mul_by_lr_scalar`` to true, as it helps with lora compatibility.

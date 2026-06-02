@@ -42,6 +42,7 @@ def worker_process(journal_path, study_name, optimizer_choice):
         from propagate.training_config import TrainingConfig
         from propagate.optimizers.optimizer import Optimizer
         from propagate.optimizers import chain, chain_misc
+        from propagate.optimizers.psamplers import Gaussian_PSampler, Bernoulli_PSampler
         from propagate.optimizers import example_chains
         from propagate.optimizers import chain_adam_seeded
         from vllm import SamplingParams
@@ -86,7 +87,7 @@ def worker_process(journal_path, study_name, optimizer_choice):
 
             # --- SETUP CHAINS ---
             perturb_chain = [
-                chain.Init_Perturbation_Gaussian(fp32_accumulate=True), 
+                chain.Init_Perturbation(Gaussian_PSampler(fp32_accumulate=True)), 
                 chain.Scale_Perturbation(mul_by_std=True, mul_by_lr_scalar=True), 
                 chain.Add_Perturb_Buffer(), 
                 chain.Delete_Perturb_Buffer()

@@ -3,6 +3,7 @@ import torch
 import math
 from propagate.optimizers import chain, chain_adam, chain_misc, chain_adam_seeded
 from propagate.genome import Genome
+from propagate.optimizers.psamplers import Gaussian_PSampler
 
 """
 Tests for Complex Chain Operations.
@@ -149,7 +150,7 @@ def test_seeded_rmsprop_equivalence(dummy_tensor, basic_genome):
         state_B[(param_id, "seed_history")].append(list(zip(g.seeds, g.perturb_scales)))
         
     op_seeded = chain_adam_seeded.OC_Apply_RMSProp_Seeded(
-        coeff_old=coeff_old, coeff_new=coeff_new, force_init_value=-999, epsilon=1e-8
+        Gaussian_PSampler(), coeff_old=coeff_old, coeff_new=coeff_new, force_init_value=-999, epsilon=1e-8
     )
     
     # Run Seeded Op

@@ -4,6 +4,7 @@ from propagate.trainer import SimpleTrainer
 from propagate.training_config import TrainingConfig
 from propagate.optimizers.optimizer import Optimizer
 from propagate.optimizers import chain
+from propagate.optimizers.psamplers import Gaussian_PSampler, Bernoulli_PSampler
 from vllm import SamplingParams
 
 import gc
@@ -30,14 +31,14 @@ try:
     )
     
     perturb_chain = [
-        chain.Init_Perturbation_Gaussian(fp32_accumulate=True), 
+        chain.Init_Perturbation(Gaussian_PSampler(fp32_accumulate=True)), 
         chain.Scale_Perturbation(mul_by_std=True, mul_by_lr_scalar=True), 
         chain.Add_Perturb_Buffer(), 
         chain.Delete_Perturb_Buffer()
     ]
     
     update_chain = [
-        chain.Init_Perturbation_Gaussian(fp32_accumulate=True), 
+        chain.Init_Perturbation(Gaussian_PSampler(fp32_accumulate=True)), 
         chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, div_by_rstd=False, mul_by_std=True, mul_by_lr_scalar=True), 
         chain.Add_Perturb_Buffer(), 
         chain.Delete_Perturb_Buffer()

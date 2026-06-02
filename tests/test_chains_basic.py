@@ -1,6 +1,7 @@
 import pytest
 import torch
 from propagate.optimizers import chain
+from propagate.optimizers.psamplers import Gaussian_PSampler, Bernoulli_PSampler
 from propagate.genome import Genome
 
 """
@@ -157,7 +158,7 @@ def test_bernoulli_init(dummy_tensor, dummy_state, basic_genome):
     Test Bernoulli Initialization.
     Logic: Random(0, 2) -> {0, 1}. Center(0.5) -> {-0.5, 0.5}. Scale(2) -> {-1, 1}.
     """
-    op = chain.Init_Perturbation_Bernoulli(center=0.5, fp32_accumulate=False)
+    op = chain.Init_Perturbation(Bernoulli_PSampler(center=0.5, fp32_accumulate=False))
     
     if "perturb_buffer" in dummy_state: del dummy_state["perturb_buffer"]
     

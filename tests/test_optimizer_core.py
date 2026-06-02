@@ -2,6 +2,7 @@ import pytest
 import torch
 from propagate.optimizers.optimizer import Optimizer
 from propagate.optimizers import chain
+from propagate.optimizers.psamplers import Gaussian_PSampler, Bernoulli_PSampler
 from propagate.genome import Genome
 from propagate.training_config import TrainingConfig
 
@@ -156,7 +157,7 @@ def test_inverse_perturbation_consistency(dummy_tensor):
     # Define a reversible chain
     # Init -> Scale -> Add
     p_chain = [
-        chain.Init_Perturbation_Gaussian(),
+        chain.Init_Perturbation(Gaussian_PSampler()),
         chain.Scale_Perturbation(mul_by_std=True),
         chain.Add_Perturb_Buffer(), 
         chain.Delete_Perturb_Buffer() 

@@ -5,6 +5,7 @@ import os
 from propagate.genome import Genome
 from propagate.optimizers.optimizer import Optimizer
 from propagate.optimizers import chain, chain_adam, chain_misc
+from propagate.optimizers.psamplers import Gaussian_PSampler, Bernoulli_PSampler
 
 """
 Inspection: Convergence on 2D Reward Landscape
@@ -107,25 +108,25 @@ def run_optimizer_path(opt_name, setup_func, reward_func, steps=50, start_pos=(-
 def chart_convergence():
     # 1. Simple SGD Mirrored
     def setup_sgd():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
-        u_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_lr=True, div_by_pop=True, mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        u_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_lr=True, div_by_pop=True, mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         return Optimizer("SGD_Mir", 150, 0.04, 0.5, 40, True, p_chain, u_chain, False, False)
 
     def setup_sgd_nomirror():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
-        u_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_lr=True, div_by_pop=True, mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        u_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_lr=True, div_by_pop=True, mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         return Optimizer("SGD_NoMir", 150, 0.04, 0.5, 40, False, p_chain, u_chain, True, False)
 
     def setup_sgd_rank():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
-        u_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_lr=True, div_by_pop=True, mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        u_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_lr=True, div_by_pop=True, mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         return Optimizer("SGD_Rank", 150, 2.0, 0.5, 40, True, p_chain, u_chain, False, True)
 
     # 2. SGD with Momentum
     def setup_momentum():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         u_chain = [
-            chain.Init_Perturbation_Gaussian(), 
+            chain.Init_Perturbation(Gaussian_PSampler()), 
             chain.Scale_Perturbation(div_by_pop=True, mul_by_std=True), 
             chain_adam.OC_Compute_Momentum(0.9, 0.1),
             chain.Zero_Perturb_Buffer(),
@@ -138,9 +139,9 @@ def chart_convergence():
 
     # 3. RMSProp
     def setup_rmsprop():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         u_chain = [
-            chain.Init_Perturbation_Gaussian(),
+            chain.Init_Perturbation(Gaussian_PSampler()),
             chain.Scale_Perturbation(div_by_pop=True, mul_by_std=True),
             chain_adam.OC_Compute_RMSProp(0.9, 0.1, -999),
             chain_adam.OC_Apply_RMSProp(),
@@ -152,9 +153,9 @@ def chart_convergence():
 
     # 4. Adam (RMSProp + Momentum)
     def setup_adam():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         u_chain = [
-            chain.Init_Perturbation_Gaussian(),
+            chain.Init_Perturbation(Gaussian_PSampler()),
             chain.Scale_Perturbation(div_by_pop=True, mul_by_std=True),
             chain_adam.OC_Compute_Momentum(0.9, 0.1),
             chain_adam.OC_Compute_RMSProp(0.999, 0.001, -999),
@@ -170,7 +171,7 @@ def chart_convergence():
     # 5. NAdam
     def setup_nadam():
         p_chain = [
-            chain.Init_Perturbation_Gaussian(), 
+            chain.Init_Perturbation(Gaussian_PSampler()), 
             chain.Scale_Perturbation(mul_by_std=True), 
             chain_adam.OC_Add_Momentum(),
             chain_adam.OC_Apply_RMSProp(),
@@ -178,7 +179,7 @@ def chart_convergence():
             chain.Delete_Perturb_Buffer()
         ]
         u_chain = [
-            chain.Init_Perturbation_Gaussian(),
+            chain.Init_Perturbation(Gaussian_PSampler()),
             chain.Scale_Perturbation(div_by_pop=True, mul_by_std=True),
             chain_adam.OC_Compute_Momentum(0.9, 0.1),
             chain_adam.OC_Compute_RMSProp(0.999, 0.001, -999),
@@ -193,9 +194,9 @@ def chart_convergence():
 
     # 6. SignSGD
     def setup_sign_sgd():
-        p_chain = [chain.Init_Perturbation_Gaussian(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Gaussian_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         u_chain = [
-            chain.Init_Perturbation_Gaussian(), 
+            chain.Init_Perturbation(Gaussian_PSampler()), 
             chain.Scale_Perturbation(div_by_pop=True),
             chain.Sign_Perturb_Buffer(),
             chain.Scale_Perturbation(mul_by_lr=True), 
@@ -206,9 +207,9 @@ def chart_convergence():
 
     # 7. Bernoulli Random Search (Pure SGD but Bernoulli Noise)
     def setup_bernoulli_sgd():
-        p_chain = [chain.Init_Perturbation_Bernoulli(), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
+        p_chain = [chain.Init_Perturbation(Bernoulli_PSampler()), chain.Scale_Perturbation(mul_by_std=True), chain.Add_Perturb_Buffer(), chain.Delete_Perturb_Buffer()]
         u_chain = [
-            chain.Init_Perturbation_Bernoulli(), 
+            chain.Init_Perturbation(Bernoulli_PSampler()), 
             chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, mul_by_std=True), 
             chain.Add_Perturb_Buffer(), 
             chain.Delete_Perturb_Buffer()

@@ -36,20 +36,20 @@ class OC_Apply_Momentum_Seeded(OptimizerChain):
     
     Attributes
     ----------
+    psampler : PSampler
+        The sampler to use for generating the reconstructed noise.
     coeff_old : float
         The decay rate for old momentum (beta1).
     coeff_new : float
         The scaling factor for new momentum (1 - beta1).
     force_init_zeros : bool
         Whether to force initialization to zero.
-    bernoulli_center : float
-        If set, uses Bernoulli noise centered at this value instead of Gaussian.
     """
-    def __init__(self, coeff_old: float = 0.95, coeff_new: float = 0.05, force_init_zeros: bool = True, bernoulli_center: float = -999):
+    def __init__(self, psampler, coeff_old: float = 0.95, coeff_new: float = 0.05, force_init_zeros: bool = True):
+        self.psampler = psampler
         self.coeff_old = coeff_old
         self.coeff_new = coeff_new
         self.force_init_zeros = force_init_zeros
-        self.bernoulli_center = bernoulli_center
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
@@ -62,21 +62,18 @@ class OC_Apply_Momentum_Seeded(OptimizerChain):
         
         running_factor = 1
         momentum_buffer = torch.zeros_like(perturbation)
-        buffer = torch.empty_like(tensor)
-        gen = torch.Generator(device=tensor.device)
         for step in reversed(state[(parameter_id, "seed_history")]):
-            for seed, weight in step:
-                gen.manual_seed(int(seed) + random_offset)
-                if self.bernoulli_center != -999:
-                    buffer.random_(0, 2, generator=gen).sub_(self.bernoulli_center).mul_(2)
-                else:
-                    buffer.normal_(generator=gen)
-                momentum_buffer.add_(buffer, alpha=float(running_factor * weight))
+            mock_genome = Genome().from_data({
+                "seeds": [s for s, w in step],
+                "perturb_scales": [float(running_factor * w) for s, w in step]
+            })
+            step_noise = self.psampler.sample(mock_genome, state, parameter_id, tensor, random_offset, do_log)
+            momentum_buffer.add_(step_noise)
             running_factor *= self.coeff_old
         bias_correction = self.coeff_new if self.force_init_zeros else self.coeff_new/(1 - self.coeff_old ** len(state[(parameter_id, "seed_history")]))
         perturbation.add_(momentum_buffer, alpha=bias_correction)
         
-        del momentum_buffer, buffer
+        del momentum_buffer
         
 class OC_Apply_RMSProp_Seeded(OptimizerChain):
     """
@@ -87,6 +84,8 @@ class OC_Apply_RMSProp_Seeded(OptimizerChain):
     
     Attributes
     ----------
+    psampler : PSampler
+        The sampler to use for generating the reconstructed noise.
     coeff_old : float
         The decay rate for the running average.
     coeff_new : float
@@ -95,15 +94,13 @@ class OC_Apply_RMSProp_Seeded(OptimizerChain):
         The value to initialize the running average to, or -999.
     epsilon : float
         The epsilon value for stability.
-    bernoulli_center : float
-        If set, uses Bernoulli noise centered at this value instead of Gaussian.
     """
-    def __init__(self, coeff_old: float = 0.95, coeff_new: float = 0.05, force_init_value: float = 1e-4, epsilon: float = 1e-5, bernoulli_center: float = -999):
+    def __init__(self, psampler, coeff_old: float = 0.95, coeff_new: float = 0.05, force_init_value: float = 1e-4, epsilon: float = 1e-5):
+        self.psampler = psampler
         self.coeff_old = coeff_old
         self.coeff_new = coeff_new
         self.force_init_value = force_init_value
         self.epsilon = epsilon
-        self.bernoulli_center = bernoulli_center
         
     @torch.no_grad()
     def apply(self, source: Genome, state: Dict, parameter_id, tensor: torch.Tensor, random_offset: int, do_log: bool = False):
@@ -114,26 +111,21 @@ class OC_Apply_RMSProp_Seeded(OptimizerChain):
             return
         perturbation = state["perturb_buffer"]
         
+        
         init_val = self.force_init_value if self.force_init_value != -999 else 0
         running_factor = 1
         rmsprop_buffer = torch.zeros_like(perturbation)
-        square_buffer = torch.zeros_like(perturbation)
-        buffer = torch.empty_like(tensor)
-        gen = torch.Generator(device=tensor.device)
         for step in reversed(state[(parameter_id, "seed_history")]):
-            for seed, weight in step:
-                gen.manual_seed(int(seed) + random_offset)
-                if self.bernoulli_center != -999:
-                    buffer.random_(0, 2, generator=gen).sub_(self.bernoulli_center).mul_(2)
-                else:
-                    buffer.normal_(generator=gen)
-                square_buffer.add_(buffer, alpha=float(weight))
-            rmsprop_buffer.addcmul_(square_buffer, square_buffer, value=float(running_factor * self.coeff_new))
+            mock_genome = Genome().from_data({
+                "seeds": [s for s, w in step],
+                "perturb_scales": [w for s, w in step]
+            })
+            step_noise = self.psampler.sample(mock_genome, state, parameter_id, tensor, random_offset, do_log)
+            rmsprop_buffer.addcmul_(step_noise, step_noise, value=float(running_factor * self.coeff_new))
             running_factor *= self.coeff_old
-            square_buffer.zero_()
         rmsprop_buffer.add_(init_val, alpha=running_factor)
         bias_correction = 1 if self.force_init_value != -999 else 1 - self.coeff_old ** len(state[(parameter_id, "seed_history")])
         rmsprop_buffer.div_(bias_correction).sqrt_().add_(self.epsilon)
         perturbation.div_(rmsprop_buffer)
         
-        del rmsprop_buffer, square_buffer, buffer
+        del rmsprop_buffer

@@ -99,8 +99,8 @@ class Genome:
         }
         
     def from_data(self, data: Dict):
-        self.seeds = data["seeds"]
-        self.perturb_scales = data["perturb_scales"]
-        self.historical_rewards = data["historical_rewards"]
-        self.starting_index = data["starting_index"]
+        self.seeds = data.get("seeds", [])
+        self.perturb_scales = data.get("perturb_scales", [])
+        self.historical_rewards = data.get("historical_rewards", [])
+        self.starting_index = data.get("starting_index", 0)
         return self
