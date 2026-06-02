@@ -79,7 +79,7 @@ MOMENTUM_SEEDED_UPDATE = [
     chain.Init_Perturbation_Gaussian(),
     chain.Zero_Perturb_Buffer(),
     chain_adam_seeded.OC_Update_Seed_History(),
-    chain_adam_seeded.OC_Apply_Momentum_Seeded(coeff_new=1),
+    chain_adam_seeded.OC_Apply_Momentum_Seeded(),
     chain.Scale_Perturbation(mul_by_lr=True, mul_by_std=True, mul_by_lr_scalar=True, div_by_pop=True),
     chain.Add_Perturb_Buffer(),
     chain.Delete_Perturb_Buffer()

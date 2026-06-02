@@ -31,7 +31,7 @@ def get_or_create_study(study_name, journal_path, direction="maximize"):
         pruner=pruner,
     )
 
-def worker_process(journal_path, study_name):
+def worker_process(journal_path, study_name, optimizer_choice):
     """
     Runs in total isolation. Connects to the DB, runs 1 trial, and dies cleanly.
     """
@@ -42,6 +42,8 @@ def worker_process(journal_path, study_name):
         from propagate.training_config import TrainingConfig
         from propagate.optimizers.optimizer import Optimizer
         from propagate.optimizers import chain, chain_misc
+        from propagate.optimizers import example_chains
+        from propagate.optimizers import chain_adam_seeded
         from vllm import SamplingParams
         import torch
         import ray
@@ -56,13 +58,15 @@ def worker_process(journal_path, study_name):
 
         def objective(trial):            
             # --- SWEPT HYPERPARAMETERS ---
-            lr = trial.suggest_float("lr", 0.5, 10.0)
+            # Kept identical to optuna_wd.py as requested, but added momentum
+            lr = trial.suggest_float("lr", 0.1, 10.0)
             lambda_val = trial.suggest_float("lambda_val", 1e-4, 1, log=True)
             exponent = trial.suggest_float("exponent", 0.01, 10.0, log=True)
+            momentum = trial.suggest_float("momentum", 0.5, 0.99)
             
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
                         
-            run_name = f"wd_t{trial.number}_lr{lr:.2f}_lam{lambda_val:.1e}_exp{exponent:.2f}"
+            run_name = f"{optimizer_choice}_t{trial.number}_lr{lr:.2f}_lam{lambda_val:.1e}_exp{exponent:.2f}_mom{momentum:.2f}"
             
             backend = VLLMBackendLoRA(
                 model_name="Qwen/Qwen2.5-3B-Instruct", 
@@ -87,13 +91,28 @@ def worker_process(journal_path, study_name):
                 chain.Add_Perturb_Buffer(), 
                 chain.Delete_Perturb_Buffer()
             ]
-            update_chain = [
-                chain.Init_Perturbation_Gaussian(fp32_accumulate=True), 
-                chain.Scale_Perturbation(div_by_pop=True, mul_by_lr=True, div_by_rstd=False, mul_by_std=True, mul_by_lr_scalar=True), 
-                chain.Add_Perturb_Buffer(), 
-                chain.Delete_Perturb_Buffer(),
+            
+            # Select update chain from example_chains
+            if optimizer_choice == "muon":
+                base_update = example_chains.MUON_SEEDED_UPDATE
+            elif optimizer_choice == "lion":
+                base_update = example_chains.LION_SEEDED_UPDATE
+            elif optimizer_choice == "momentum":
+                base_update = example_chains.MOMENTUM_SEEDED_UPDATE
+            else:
+                raise ValueError(f"Unknown optimizer: {optimizer_choice}")
+                
+            # Append weight decay chain at the end
+            update_chain = list(base_update) + [
                 chain_misc.Direct_Weight_Decay(lambda_val=lambda_val, exponent=exponent)
             ]
+            
+            # Apply swept momentum coefficient
+            for c in update_chain:
+                if isinstance(c, chain_adam_seeded.OC_Apply_Momentum_Seeded):
+                    c.coeff_old = momentum
+                    c.coeff_new = 1.0 - momentum
+
             config = TrainingConfig(
                 total_steps=200,
                 learning_rate=lr,
@@ -104,7 +123,7 @@ def worker_process(journal_path, study_name):
                 centered_eval=True,
             )
             optimizer = Optimizer(
-                optimizer_name="Weight Decay Optimizer", 
+                optimizer_name=f"{optimizer_choice.capitalize()} Optimizer", 
                 config=config, 
                 perturb_chain=perturb_chain, 
                 update_chain=update_chain
@@ -113,7 +132,7 @@ def worker_process(journal_path, study_name):
                 optimizer=optimizer,
                 backend=backend,
                 dataset=dataset,
-                wandb_project="propagate_lora_wd_sweeps",
+                wandb_project=f"propagate_lora_{optimizer_choice}_sweeps",
                 wandb_project_name=run_name,
                 validate_every=10,
                 print_samples=False,
@@ -142,23 +161,24 @@ def worker_process(journal_path, study_name):
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Optuna Sweep for Propagate Weight Decay")
+    parser = argparse.ArgumentParser(description="Run Optuna Sweep for Propagate Optimizers")
     parser.add_argument("--trials", type=int, default=10, help="Total trials to run on this node")
+    parser.add_argument("--optimizer", type=str, choices=["muon", "lion", "momentum"], required=True, help="Optimizer to sweep")
     args = parser.parse_args()
 
-    JOURNAL_PATH = "sweep_lora_wd.journal"
-    STUDY_NAME = "study_lora_wd"
+    JOURNAL_PATH = f"sweep_lora_{args.optimizer}.journal"
+    STUDY_NAME = f"study_lora_{args.optimizer}"
 
     study = get_or_create_study(STUDY_NAME, JOURNAL_PATH)
 
-    print(f"\n#--- Starting Weight Decay Sweep ({args.trials} trials) ---#")
+    print(f"\n#--- Starting {args.optimizer.capitalize()} Sweep ({args.trials} trials) ---#")
     
     ctx = mp.get_context('spawn')
     
     for i in range(args.trials):
         print(f"\n--- Initiating Trial {i+1}/{args.trials} ---")
         
-        p = ctx.Process(target=worker_process, args=(JOURNAL_PATH, STUDY_NAME))
+        p = ctx.Process(target=worker_process, args=(JOURNAL_PATH, STUDY_NAME, args.optimizer))
         p.start()
         p.join()
         
