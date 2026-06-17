@@ -66,6 +66,14 @@ class WorkerExtension:
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
+    def set_optimizer_state(self, merged):
+        import copy
+        if not hasattr(self, 'optimizer_state'):
+            self.optimizer_state = {}
+        for k, v in merged.items():
+            self.optimizer_state[k] = copy.deepcopy(v)
+        return True
+
     def init_inter_engine_group(self, master_address: str, master_port: int, rank: int, world_size: int):
         """Initialize the process group for inter-engine communication (NCCL).
         
@@ -89,13 +97,25 @@ class WorkerExtension:
             src_rank (int): The rank of the worker to broadcast from.
         
         Returns:
-            bool: True if broadcast was successful.
+            dict: Non-tensor optimizer states.
         """
         for _, p in self.model_runner.model.named_parameters():
             self.inter_pg.broadcast(p, src=int(src_rank), stream=torch.cuda.current_stream())
+            
+        if hasattr(self, 'optimizer_state'):
+            for k, v in self.optimizer_state.items():
+                if isinstance(v, torch.Tensor):
+                    self.inter_pg.broadcast(v, src=int(src_rank), stream=torch.cuda.current_stream())
+                    
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        return True
+            
+        non_tensor_state = {}
+        if hasattr(self, 'optimizer_state'):
+            for k, v in self.optimizer_state.items():
+                if not isinstance(v, torch.Tensor):
+                    non_tensor_state[k] = v
+        return non_tensor_state
 
     def save_weights_to_disk(self, filepath):
         """Save the model's weights to disk.

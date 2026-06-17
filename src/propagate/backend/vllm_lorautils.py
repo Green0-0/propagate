@@ -259,9 +259,44 @@ class WorkerExtension:
             a_stacked[:] = mean_a
             b_stacked[:] = mean_b
 
+        if hasattr(self, 'optimizer_state_per_adapter') and len(self.optimizer_state_per_adapter) > 0:
+            tensor_keys = set()
+            for state in self.optimizer_state_per_adapter.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor) and isinstance(k, tuple):
+                        tensor_keys.add(k)
+                        
+            for k in sorted(list(tensor_keys), key=str):
+                sum_v = None
+                num_slots = len(self.optimizer_state_per_adapter)
+                for state in self.optimizer_state_per_adapter.values():
+                    if k in state:
+                        if sum_v is None:
+                            sum_v = state[k].clone()
+                        else:
+                            sum_v += state[k]
+                
+                if sum_v is not None:
+                    if do_collective and world_size > 1:
+                        collective.allreduce(sum_v, group_name=self.collective_group_name)
+                    
+                    mean_v = sum_v / (num_slots * world_size)
+                    
+                    for state in self.optimizer_state_per_adapter.values():
+                        if k in state:
+                            state[k].copy_(mean_v)
+
+        non_tensor_states = {}
+        if hasattr(self, 'optimizer_state_per_adapter'):
+            for aid, state in self.optimizer_state_per_adapter.items():
+                non_tensor_states[aid] = {}
+                for k, v in state.items():
+                    if not isinstance(v, torch.Tensor):
+                        non_tensor_states[aid][k] = v
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-        return True
+        return non_tensor_states
 
     def destroy_collective_group(self):
         """Destroy the collective group if it exists.
@@ -336,7 +371,7 @@ class WorkerExtension:
         return True
 
     @torch.inference_mode()
-    def update_weights_grad(self, optimizer: Optimizer, target: str, norm_scale_update: bool):
+    def update_weights_grad(self, optimizer: Optimizer, target: str = "ab", norm_scale_update: bool = False):
         """Update the LoRA weights using the provided optimizer.
         Supports normalizing updates by the magnitude of the weights.
         
@@ -372,10 +407,10 @@ class WorkerExtension:
                     combined_norm = torch.sqrt(norm_a.pow(2) + norm_b.pow(2))
                     layer_norm_scale = 1.0 / (combined_norm + eps)
                 if "a" in target.lower():
-                    optimizer.apply_grad(lora_a.data, rand_counter, (aid, id, "a"), lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    optimizer.apply_grad(lora_a.data, rand_counter, (id, "a"), lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                     rand_counter += 1
                 if "b" in target.lower():
-                    optimizer.apply_grad(lora_b.data, rand_counter, (aid, id, "b"), lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
+                    optimizer.apply_grad(lora_b.data, rand_counter, (id, "b"), lr_scalar=float(layer_norm_scale), state=state, do_log=self.rank == 0)
                     rand_counter += 1
                 
         if torch.cuda.is_available():
@@ -432,11 +467,25 @@ class WorkerExtension:
                 else:
                     raise RuntimeError(f"Normalization cache value for tensor {str(aid, layer_name)} was missing!.")
                 if "a" in target.lower():
-                    optimizer.apply_perturb(invert, genome, lora_a.data, rand_counter, (aid, layer_name, "a"), state, lr_scalar=float(layer_norm_scale), do_log=self.rank == 0)
+                    optimizer.apply_perturb(invert, genome, lora_a.data, rand_counter, (layer_name, "a"), state, lr_scalar=float(layer_norm_scale), do_log=self.rank == 0)
                     rand_counter += 1
                 if "b" in target.lower():
-                    optimizer.apply_perturb(invert, genome, lora_b.data, rand_counter, (aid, layer_name, "b"), state, lr_scalar=float(layer_norm_scale), do_log=self.rank == 0)
+                    optimizer.apply_perturb(invert, genome, lora_b.data, rand_counter, (layer_name, "b"), state, lr_scalar=float(layer_norm_scale), do_log=self.rank == 0)
                     rand_counter += 1
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         torch.cuda.empty_cache()
+
+    def set_optimizer_state(self, merged):
+        import copy
+        if not hasattr(self, 'optimizer_state_per_adapter'):
+            self.optimizer_state_per_adapter = {}
+        lora_manager = self.model_runner.lora_manager
+        adapter_manager = lora_manager._adapter_manager
+        adapters_dict = adapter_manager.list_adapters()
+        for aid in adapters_dict:
+            if aid not in self.optimizer_state_per_adapter:
+                self.optimizer_state_per_adapter[aid] = {}
+            for k, v in merged.items():
+                self.optimizer_state_per_adapter[aid][k] = copy.deepcopy(v)
+        return True

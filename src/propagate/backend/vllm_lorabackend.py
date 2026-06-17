@@ -27,6 +27,8 @@ import gc
 from propagate.optimizers.optimizer import Optimizer
 from propagate.training_config import TrainingConfig
 
+import numpy as np
+
 class VLLMBackendLoRA(Backend):
     """The vLLM backend with LoRA support. Uses Ray to spawn vLLM workers and distribute inference across them.
     Inference for multiple genomes performed in parallel by perturbing the LoRA adapter weights.
@@ -512,7 +514,25 @@ class VLLMBackendLoRA(Backend):
         
         # Sync weights across engines to prevent floating point error accumulation during perturb-restore steps
         ray.get(restore_handles)
-        ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
+        all_states = ray.get([llm.collective_rpc.remote("perform_global_average_lora") for llm in self.inference_engines])
+        
+        state_list = []
+        for s in all_states:
+            if s: state_list.extend(s.values())
+        if state_list:
+            merged = {}
+            for s in state_list:
+                for k, v in s.items(): merged.setdefault(k, []).append(v)
+            for k, v in merged.items():
+                if isinstance(v[0], (int, float, np.number)): 
+                    merged[k] = v[0] if all(x == v[0] for x in v) else sum(v) / len(v)
+                elif isinstance(v[0], np.ndarray): 
+                    merged[k] = v[0] if all(np.array_equal(x, v[0]) for x in v) else sum(v) / len(v)
+                elif isinstance(v[0], list): merged[k] = sum(v, []) if k == "mem_genomes" else v[0]
+                elif isinstance(v[0], dict): merged[k] = {ik: iv for d in v for ik, iv in d.items()}
+                else: merged[k] = v[0]
+            ray.get([llm.collective_rpc.remote("set_optimizer_state", args=(merged,)) for llm in self.inference_engines])
+            
         if self.time_self:
             print(f"#-- All adapters restored in {time.time() - end_time:.2f}s --#")
 

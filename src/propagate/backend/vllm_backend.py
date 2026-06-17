@@ -17,6 +17,8 @@ from vllm.utils.network_utils import get_ip, get_open_port
 from propagate.genome import Genome
 from propagate.optimizers.optimizer import Optimizer
 
+import numpy as np
+
 class VLLMBackend(Backend):
     """The standard vLLM backend. Uses Ray to spawn vLLM workers and distribute inference across them.
     Evolution Strategy (ES) perturbation happens directly on the model weights in this backend.
@@ -246,7 +248,20 @@ class VLLMBackend(Backend):
                 start_time = end_time
         # Sync weights across engines to prevent floating point error accumulation during perturb-restore steps
         if self.NUM_GPUS > 1:
-            ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
+            all_states = ray.get([llm.collective_rpc.remote("broadcast_all_weights", args=(0,)) for llm in self.inference_engines])
+            merged = {}
+            for s in all_states:
+                if not s: continue
+                for k, v in s.items(): merged.setdefault(k, []).append(v)
+            for k, v in merged.items():
+                if isinstance(v[0], (int, float, np.number)): 
+                    merged[k] = v[0] if all(x == v[0] for x in v) else sum(v) / len(v)
+                elif isinstance(v[0], np.ndarray): 
+                    merged[k] = v[0] if all(np.array_equal(x, v[0]) for x in v) else sum(v) / len(v)
+                elif isinstance(v[0], list): merged[k] = sum(v, []) if k == "mem_genomes" else v[0]
+                elif isinstance(v[0], dict): merged[k] = {ik: iv for d in v for ik, iv in d.items()}
+                else: merged[k] = v[0]
+            ray.get([llm.collective_rpc.remote("set_optimizer_state", args=(merged,)) for llm in self.inference_engines])
             
     def save_weights_to_disk(self, filepath: str):
         """Save the weights of the first inference engine to disk.
