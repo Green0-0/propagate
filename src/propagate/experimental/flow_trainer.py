@@ -301,7 +301,7 @@ class OptunaFlowTrainer:
             
             # --- SAFE MU UPDATE (Standard ES) ---
             with torch.no_grad():
-                mu_grad = (norm_rewards_t.unsqueeze(1) * epsilon).mean(dim=0)
+                mu_grad = (norm_rewards_t.unsqueeze(1) * epsilon).mean(dim=0) * self.target_sigma
                 self.flow_model.mu += self.mu_lr * mu_grad
 
             # 4. Validation
