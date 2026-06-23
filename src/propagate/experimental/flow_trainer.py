@@ -133,7 +133,7 @@ class OptunaFlowTrainer:
         print(f"#-- Target LoRA Parameters Dimension: {self.dim_params} --#")
         
         self.flow_model = FlowES(self.dim_params, hidden_layers=self.flow_hidden_layers, hidden_dim=self.flow_hidden_dim)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cpu"
         self.flow_model.to(device)
         
         # FIXED: Split optimizers for mu and flow network
