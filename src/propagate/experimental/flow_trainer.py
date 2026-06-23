@@ -137,8 +137,8 @@ class OptunaFlowTrainer:
         self.flow_model.to(device)
         
         # FIXED: Split optimizers for mu and flow network
-        flow_params = [p for n, p in self.flow_model.named_parameters() if n != 'mu']
-        self.flow_optimizer = optim.Adam(flow_params, lr=flow_lr, betas=(adam_beta1, adam_beta2))
+        self.flow_params = [p for n, p in self.flow_model.named_parameters() if n != 'mu']
+        self.flow_optimizer = optim.Adam(self.flow_params, lr=flow_lr, betas=(adam_beta1, adam_beta2))
         self.mu_optimizer = optim.SGD([self.flow_model.mu], lr=mu_lr, momentum=mu_momentum)
         
         # Target log prob computed PER DIMENSION to match the mean scaling
@@ -254,22 +254,25 @@ class OptunaFlowTrainer:
                         
                         surr1 = ratio * mb_advantages
                         surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * mb_advantages
-                        ppo_loss = -torch.min(surr1, surr2).mean()
+                        ppo_loss = -torch.min(surr1, surr2).mean() * self.dim_params
                         
-                        entropy_loss = self.alpha_entropy * (new_log_probs.mean() - self.target_log_prob).pow(2)
+                        entropy_loss = self.alpha_entropy * (new_log_probs.mean() - self.target_log_prob).pow(2) * self.dim_params
                         
                         loss = ppo_loss + entropy_loss
                         
                         self.flow_optimizer.zero_grad()
                         self.mu_optimizer.zero_grad()
                         loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.flow_model.parameters(), self.grad_clip)
+                        
+                        # Only clip Flow network params, let mu update freely via its own SGD scale
+                        torch.nn.utils.clip_grad_norm_(self.flow_params, self.grad_clip)
+                        
                         self.flow_optimizer.step()
                         self.mu_optimizer.step()
                         
-                        total_loss_tracker += loss.item()
-                        total_ppo_loss += ppo_loss.item()
-                        total_ent_loss += entropy_loss.item()
+                        total_loss_tracker += loss.item() / self.dim_params
+                        total_ppo_loss += ppo_loss.item() / self.dim_params
+                        total_ent_loss += entropy_loss.item() / self.dim_params
                         total_log_prob_tracker += new_log_probs.mean().item()
                         
                 if self.wandb_project:
@@ -284,22 +287,23 @@ class OptunaFlowTrainer:
                 fixed_targets = candidate_weights.detach()
                 log_probs = self.flow_model.log_prob(fixed_targets)
                 
-                rl_loss = -(log_probs * norm_rewards_t).mean()
-                entropy_loss = self.alpha_entropy * (log_probs.mean() - self.target_log_prob).pow(2)
+                rl_loss = -(log_probs * norm_rewards_t).mean() * self.dim_params
+                entropy_loss = self.alpha_entropy * (log_probs.mean() - self.target_log_prob).pow(2) * self.dim_params
                 
                 loss = rl_loss + entropy_loss
                 
                 self.flow_optimizer.zero_grad()
                 self.mu_optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.flow_params, self.grad_clip)
                 self.flow_optimizer.step()
                 self.mu_optimizer.step()
                 
                 if self.wandb_project:
                     wandb.log({
-                        "train/rl_loss": rl_loss.item(),
-                        "train/entropy_loss": entropy_loss.item(),
-                        "train/total_loss": loss.item(),
+                        "train/rl_loss": rl_loss.item() / self.dim_params,
+                        "train/entropy_loss": entropy_loss.item() / self.dim_params,
+                        "train/total_loss": loss.item() / self.dim_params,
                         "train/mean_log_prob": log_probs.mean().item()
                     }, step=self.iteration_count)
 
