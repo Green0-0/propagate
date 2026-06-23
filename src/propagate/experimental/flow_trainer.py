@@ -84,9 +84,9 @@ class FlowES(nn.Module):
         e2 = (z2 - t) * torch.exp(-s)
         epsilon = torch.cat([e1, e2], dim=-1)
         
-        log_det_inv = -s.sum(dim=-1) - log_sigma.sum()
+        log_det_inv = -s.sum(dim=-1) / self.dim - log_sigma.mean()
         pi_tensor = torch.tensor(np.pi, device=x.device)
-        base_log_prob = -0.5 * (epsilon ** 2 + torch.log(2 * pi_tensor)).sum(dim=-1)
+        base_log_prob = -0.5 * (epsilon ** 2 + torch.log(2 * pi_tensor)).mean(dim=-1)
         
         return base_log_prob + log_det_inv
 
@@ -141,7 +141,8 @@ class OptunaFlowTrainer:
         self.flow_optimizer = optim.Adam(flow_params, lr=flow_lr, betas=(adam_beta1, adam_beta2))
         self.mu_optimizer = optim.SGD([self.flow_model.mu], lr=mu_lr, momentum=mu_momentum)
         
-        self.target_log_prob = -0.5 * self.dim_params * (1.0 + np.log(2 * np.pi)) - self.dim_params * np.log(self.target_sigma)
+        # Target log prob computed PER DIMENSION to match the mean scaling
+        self.target_log_prob = -0.5 * (1.0 + np.log(2 * np.pi)) - np.log(self.target_sigma)
         
         self.genomes = [Genome() for _ in range(self.config.population_size)]
         self.iteration_count = 0
