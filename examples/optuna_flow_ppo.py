@@ -13,7 +13,7 @@ def get_or_create_study(study_name, journal_path, direction="maximize"):
     lock = JournalFileOpenLock(f"{journal_path}.lock")
     storage = JournalStorage(JournalFileStorage(journal_path, lock_obj=lock))
     sampler = optuna.samplers.TPESampler(
-        n_startup_trials=10,
+        n_startup_trials=30,
         multivariate=True,
         constant_liar=True,
     )
