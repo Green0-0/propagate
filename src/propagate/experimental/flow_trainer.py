@@ -16,13 +16,13 @@ from propagate.genome import Genome
 from propagate.backend.experimental.vllm_flow_backend import VLLMFlowBackendLoRA
 
 class FlowES(nn.Module):
-    def __init__(self, dim, hidden_layers=2, hidden_dim=16):
+    def __init__(self, dim, hidden_layers=2, hidden_dim=16, target_sigma=0.05):
         super().__init__()
         self.split_dim = dim // 2
         self.dim = dim
         
         self.mu = nn.Parameter(torch.zeros(dim))
-        self.log_sigma = nn.Parameter(torch.zeros(dim) + np.log(0.05))
+        self.log_sigma = nn.Parameter(torch.zeros(dim) + np.log(target_sigma))
         
         layers = []
         layers.append(nn.Linear(self.split_dim, hidden_dim))
@@ -132,7 +132,7 @@ class OptunaFlowTrainer:
         self.dim_params = self.backend.get_total_lora_params(self.backend.lora_perturb_target)
         print(f"#-- Target LoRA Parameters Dimension: {self.dim_params} --#")
         
-        self.flow_model = FlowES(self.dim_params, hidden_layers=self.flow_hidden_layers, hidden_dim=self.flow_hidden_dim)
+        self.flow_model = FlowES(self.dim_params, hidden_layers=self.flow_hidden_layers, hidden_dim=self.flow_hidden_dim, target_sigma=self.target_sigma)
         device = "cpu"
         self.flow_model.to(device)
         
