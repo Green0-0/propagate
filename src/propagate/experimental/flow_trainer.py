@@ -233,10 +233,22 @@ class OptunaFlowTrainer:
                 total_log_prob_tracker = 0  # FIXED: Track log prob across all minibatches
                 
                 for epoch in range(self.ppo_epochs):
-                    perm = torch.randperm(batch_size, device=self.flow_model.mu.device)
+                    # Keep antithetic pairs perfectly together in minibatches to ensure gradients cancel
+                    half_pop = batch_size // 2
+                    perm_half = torch.randperm(half_pop, device=self.flow_model.mu.device)
+                    mb_half_size = max(1, half_pop // self.ppo_minibatches)
                     
                     for m in range(self.ppo_minibatches):
-                        idx = perm[m * minibatch_size : (m + 1) * minibatch_size]
+                        start_idx = m * mb_half_size
+                        end_idx = (m + 1) * mb_half_size if m < self.ppo_minibatches - 1 else half_pop
+                        
+                        idx_half = perm_half[start_idx:end_idx]
+                        idx = torch.cat([idx_half, idx_half + half_pop])
+                        
+                        # Add the dangling odd candidate to the last minibatch if it exists
+                        if m == self.ppo_minibatches - 1 and batch_size % 2 != 0:
+                            idx = torch.cat([idx, torch.tensor([batch_size - 1], device=self.flow_model.mu.device)])
+                            
                         if len(idx) == 0: continue
                         
                         mb_targets = candidate_weights[idx].detach()
