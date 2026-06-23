@@ -50,7 +50,7 @@ class FlowES(nn.Module):
         z2 = e2 * torch.exp(s) + t
         z = torch.cat([z1, z2], dim=-1)
         
-        log_sigma = torch.clamp(self.log_sigma, min=np.log(0.01), max=np.log(0.2))
+        log_sigma = torch.clamp(self.log_sigma, min=np.log(0.001), max=np.log(0.2))
         return z * torch.exp(log_sigma) + self.mu
 
     def generate_candidates(self, num_samples):
@@ -63,14 +63,14 @@ class FlowES(nn.Module):
             out = self.net(z1)
             s, t = out.chunk(2, dim=-1)
             s = torch.clamp(s, min=-2.0, max=2.0)
-            log_sigma = torch.clamp(self.log_sigma, min=np.log(0.01), max=np.log(0.2))
+            log_sigma = torch.clamp(self.log_sigma, min=np.log(0.001), max=np.log(0.2))
             
             z2 = t
             z = torch.cat([z1, z2], dim=-1)
             return (z * torch.exp(log_sigma) + self.mu).squeeze(0)
         
     def log_prob(self, x):
-        log_sigma = torch.clamp(self.log_sigma, min=np.log(0.01), max=np.log(0.2))
+        log_sigma = torch.clamp(self.log_sigma, min=np.log(0.001), max=np.log(0.2))
         z = (x - self.mu) * torch.exp(-log_sigma)
         
         z1 = z[:, :self.split_dim]
@@ -93,7 +93,7 @@ class FlowES(nn.Module):
 class OptunaFlowTrainer:
     def __init__(self, config, backend: VLLMFlowBackendLoRA, dataset: Dataset, 
                  flow_lr: float = 0.005, alpha_entropy: float = 0.01, target_sigma: float = 0.1,
-                 mu_lr: float = 0.1, mu_momentum: float = 0.9,
+                 mu_lr: float = 0.1,
                  adam_beta1: float = 0.9, adam_beta2: float = 0.999,
                  flow_hidden_layers: int = 2, flow_hidden_dim: int = 16,
                  ppo_mode: bool = False, ppo_epochs: int = 4, ppo_minibatches: int = 4, 
@@ -115,7 +115,6 @@ class OptunaFlowTrainer:
         self.target_sigma = target_sigma
         
         self.mu_lr = mu_lr
-        self.mu_momentum = mu_momentum
         self.adam_beta1 = adam_beta1
         self.adam_beta2 = adam_beta2
         
@@ -136,10 +135,8 @@ class OptunaFlowTrainer:
         device = "cpu"
         self.flow_model.to(device)
         
-        # FIXED: Split optimizers for mu and flow network
         self.flow_params = [p for n, p in self.flow_model.named_parameters() if n != 'mu']
         self.flow_optimizer = optim.Adam(self.flow_params, lr=flow_lr, betas=(adam_beta1, adam_beta2))
-        self.mu_optimizer = optim.SGD([self.flow_model.mu], lr=mu_lr, momentum=mu_momentum)
         
         # Target log prob computed PER DIMENSION to match the mean scaling
         self.target_log_prob = -0.5 * (1.0 + np.log(2 * np.pi)) - np.log(self.target_sigma)
@@ -261,14 +258,12 @@ class OptunaFlowTrainer:
                         loss = ppo_loss + entropy_loss
                         
                         self.flow_optimizer.zero_grad()
-                        self.mu_optimizer.zero_grad()
                         loss.backward()
                         
                         # Only clip Flow network params, let mu update freely via its own SGD scale
                         torch.nn.utils.clip_grad_norm_(self.flow_params, self.grad_clip)
                         
                         self.flow_optimizer.step()
-                        self.mu_optimizer.step()
                         
                         total_loss_tracker += loss.item() / self.dim_params
                         total_ppo_loss += ppo_loss.item() / self.dim_params
@@ -293,11 +288,9 @@ class OptunaFlowTrainer:
                 loss = rl_loss + entropy_loss
                 
                 self.flow_optimizer.zero_grad()
-                self.mu_optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.flow_params, self.grad_clip)
                 self.flow_optimizer.step()
-                self.mu_optimizer.step()
                 
                 if self.wandb_project:
                     wandb.log({
@@ -306,6 +299,11 @@ class OptunaFlowTrainer:
                         "train/total_loss": loss.item() / self.dim_params,
                         "train/mean_log_prob": log_probs.mean().item()
                     }, step=self.iteration_count)
+            
+            # --- SAFE MU UPDATE (Standard ES) ---
+            with torch.no_grad():
+                mu_grad = (norm_rewards_t.unsqueeze(1) * epsilon).mean(dim=0)
+                self.flow_model.mu += self.mu_lr * mu_grad
 
             # 4. Validation
             if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:

@@ -63,8 +63,7 @@ def worker_process(journal_path, study_name):
             else:
                 target_sigma = trial.suggest_float("target_sigma_ab", 0.005, 0.04)
             
-            mu_lr = trial.suggest_float("mu_lr", 0.5, 10.0)
-            mu_momentum = trial.suggest_float("mu_momentum", 0.0, 0.99)
+            mu_lr = trial.suggest_float("mu_lr", 0.01, 10.0)
             adam_beta1 = trial.suggest_float("adam_beta1", 0.1, 0.99)
             adam_beta2 = trial.suggest_float("adam_beta2", 0.8, 0.999)
             
@@ -109,7 +108,6 @@ def worker_process(journal_path, study_name):
                 alpha_entropy=alpha_entropy,
                 target_sigma=target_sigma,
                 mu_lr=mu_lr,
-                mu_momentum=mu_momentum,
                 adam_beta1=adam_beta1,
                 adam_beta2=adam_beta2,
                 flow_hidden_layers=flow_hidden_layers,
