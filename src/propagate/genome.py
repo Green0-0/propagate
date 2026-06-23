@@ -32,6 +32,7 @@ class Genome:
     latest_inputs: List[str]
     latest_outputs: List[str]
     latest_rewards: List[float]
+    special_metadata: Dict
     
     starting_index = 0
 
@@ -39,6 +40,7 @@ class Genome:
         self.seeds = []
         self.perturb_scales = []
         self.historical_rewards = []
+        self.special_metadata = {}
         
         self.latest_inputs = []
         self.latest_outputs = []
