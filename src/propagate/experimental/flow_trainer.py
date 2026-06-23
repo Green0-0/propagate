@@ -32,7 +32,7 @@ class FlowES(nn.Module):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.Tanh())
             
-        layers.append(nn.Linear(hidden_dim, (dim - self.split_dim) * 2))
+        layers.append(nn.Linear(hidden_dim, dim - self.split_dim)) # Only output s, not t
         self.net = nn.Sequential(*layers)
         
         nn.init.zeros_(self.net[-1].weight)
@@ -42,12 +42,11 @@ class FlowES(nn.Module):
         e1 = epsilon[:, :self.split_dim]
         e2 = epsilon[:, self.split_dim:]
         
-        out = self.net(e1)
-        s, t = out.chunk(2, dim=-1)
+        s = self.net(e1)
         s = torch.clamp(s, min=-2.0, max=2.0)
         
         z1 = e1
-        z2 = e2 * torch.exp(s) + t
+        z2 = e2 * torch.exp(s)
         z = torch.cat([z1, z2], dim=-1)
         
         log_sigma = torch.clamp(self.log_sigma, min=np.log(0.001), max=np.log(0.2))
@@ -60,12 +59,11 @@ class FlowES(nn.Module):
     def get_mode(self):
         with torch.no_grad():
             z1 = torch.zeros(1, self.split_dim, device=self.mu.device)
-            out = self.net(z1)
-            s, t = out.chunk(2, dim=-1)
+            s = self.net(z1)
             s = torch.clamp(s, min=-2.0, max=2.0)
             log_sigma = torch.clamp(self.log_sigma, min=np.log(0.001), max=np.log(0.2))
             
-            z2 = t
+            z2 = torch.zeros_like(s)
             z = torch.cat([z1, z2], dim=-1)
             return (z * torch.exp(log_sigma) + self.mu).squeeze(0)
         
@@ -76,12 +74,11 @@ class FlowES(nn.Module):
         z1 = z[:, :self.split_dim]
         z2 = z[:, self.split_dim:]
         
-        out = self.net(z1)
-        s, t = out.chunk(2, dim=-1)
+        s = self.net(z1)
         s = torch.clamp(s, min=-2.0, max=2.0)
         
         e1 = z1
-        e2 = (z2 - t) * torch.exp(-s)
+        e2 = z2 * torch.exp(-s)
         epsilon = torch.cat([e1, e2], dim=-1)
         
         log_det_inv = -s.sum(dim=-1) / self.dim - log_sigma.mean()

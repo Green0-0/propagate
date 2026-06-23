@@ -91,16 +91,17 @@ class FlowWorkerExtension(BaseWorkerExtension):
                 for shape_info in shapes:
                     layer_name = shape_info["layer"]
                     lora_a, lora_b = weights[layer_name]
+                    orig_a, orig_b = self._original_weights_cache[aid][layer_name]
                     
                     if "a" in target.lower():
                         a_size = shape_info["a_end"] - shape_info["a_start"]
                         a_slice = flat_candidate[offset : offset + a_size].view(shape_info["a_shape"])
-                        lora_a.copy_(a_slice)
+                        lora_a.copy_(orig_a + a_slice)
                         offset += a_size
                     if "b" in target.lower():
                         b_size = shape_info["b_end"] - shape_info["b_start"]
                         b_slice = flat_candidate[offset : offset + b_size].view(shape_info["b_shape"])
-                        lora_b.copy_(b_slice)
+                        lora_b.copy_(orig_b + b_slice)
                         offset += b_size
                         
         if torch.cuda.is_available():
