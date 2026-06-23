@@ -158,7 +158,6 @@ class OptunaFlowTrainer:
                     "population_size": self.config.population_size,
                     "flow_lr": flow_lr,
                     "mu_lr": mu_lr,
-                    "mu_momentum": mu_momentum,
                     "adam_beta1": adam_beta1,
                     "adam_beta2": adam_beta2,
                     "flow_hidden_layers": flow_hidden_layers,
