@@ -25,7 +25,7 @@ class VLLMFlowBackendLoRA(VLLMBackendLoRA):
 
     def get_total_lora_params(self, target: str):
         """Query a worker for the total number of PERTURBED parameters."""
-        return ray.get(self.inference_engines[0].collective_rpc.remote("get_total_lora_params", args=(target,)))
+        return ray.get(self.inference_engines[0].collective_rpc.remote("get_total_lora_params", args=(target,)))[0]
 
     def update(self, optimizer: Optimizer):
         pass

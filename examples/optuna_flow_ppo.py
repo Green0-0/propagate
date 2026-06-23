@@ -94,7 +94,7 @@ def worker_process(journal_path, study_name):
 
             config = TrainingConfig(
                 total_steps=200,
-                learning_rate=0, # Unused
+                learning_rate=1.0, # Unused, just to satisfy assertion
                 population_size=28,
                 perturb_scale=0.1, # Unused
                 mirror=True, # Handled implicitly by antithetic sampling in trainer
