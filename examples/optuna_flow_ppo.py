@@ -56,8 +56,12 @@ def worker_process(journal_path, study_name):
             # --- SWEPT HYPERPARAMETERS ---
             flow_lr = trial.suggest_float("flow_lr", 1e-4, 5e-2, log=True)
             alpha_entropy = trial.suggest_float("alpha_entropy", 1e-4, 0.5, log=True)
-            target_sigma = trial.suggest_float("target_sigma", 0.05, 0.2)
             lora_perturb_target = trial.suggest_categorical("lora_perturb_target", ["b", "ab"])
+            
+            if lora_perturb_target == "b":
+                target_sigma = trial.suggest_float("target_sigma_b", 0.05, 0.2)
+            else:
+                target_sigma = trial.suggest_float("target_sigma_ab", 0.01, 0.1)
             
             mu_lr = trial.suggest_float("mu_lr", 0.1, 5.0, log=True)
             mu_momentum = trial.suggest_float("mu_momentum", 0.0, 0.99)
