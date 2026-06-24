@@ -59,11 +59,11 @@ def worker_process(journal_path, study_name):
             lora_perturb_target = trial.suggest_categorical("lora_perturb_target", ["b", "ab"])
             
             if lora_perturb_target == "b":
-                target_sigma = trial.suggest_float("target_sigma_b", 0.05, 0.2)
+                target_sigma = trial.suggest_float("target_sigma_b", 0.01, 0.2)
             else:
-                target_sigma = trial.suggest_float("target_sigma_ab", 0.005, 0.04)
+                target_sigma = trial.suggest_float("target_sigma_ab", 0.001, 0.04)
             
-            mu_lr = trial.suggest_float("mu_lr", 0.01, 10.0)
+            mu_lr = trial.suggest_float("mu_lr", 0.01, 6.0)
             adam_beta1 = trial.suggest_float("adam_beta1", 0.1, 0.99)
             adam_beta2 = trial.suggest_float("adam_beta2", 0.8, 0.999)
             

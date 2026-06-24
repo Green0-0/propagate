@@ -204,7 +204,12 @@ class OptunaFlowTrainer:
                 genome.special_metadata["flow_candidate"] = candidate_weights[i].detach().cpu().clone()
             
             # 2. Evaluate Candidates
-            inputs = self.dataset.next(population_size=self.config.population_size, mirror=False, center=False)
+            has_odd = self.config.population_size % 2 != 0
+            inputs = self.dataset.next(
+                population_size=self.config.population_size // 2, 
+                mirror=True, 
+                center=has_odd
+            )
             self.backend.generate_outputs(self.genomes, None, self.dataset.suffix, inputs)
             self.dataset.score_all(self.genomes)
             
@@ -310,7 +315,9 @@ class OptunaFlowTrainer:
             
             # --- SAFE MU UPDATE (Standard ES) ---
             with torch.no_grad():
-                mu_grad = (norm_rewards_t.unsqueeze(1) * epsilon).mean(dim=0) * self.target_sigma
+                # Use the actual direction explored in the parameter space (candidate - mu)
+                actual_noise = (candidate_weights - self.flow_model.mu) / self.target_sigma
+                mu_grad = (norm_rewards_t.unsqueeze(1) * actual_noise).mean(dim=0) * self.target_sigma
                 self.flow_model.mu += self.mu_lr * mu_grad
 
             # 4. Validation
