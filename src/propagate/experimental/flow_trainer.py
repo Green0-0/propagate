@@ -520,9 +520,10 @@ class XNESTrainer(OptunaFlowTrainer):
                     self.L = torch.linalg.cholesky(self.cov)
 
             end_time = time.time()
-            print(f"#-- Iteration {self.iteration_count} (xNES) completed in {end_time - start_time:.2f}s | Reward: {np.mean(rewards):.4f} --#")
+            self.log_train_stats(self.genomes, end_time - start_time, np.mean(rewards), np.std(rewards))
+            
             if self.wandb_project:
-                wandb.log({"train/average_reward": np.mean(rewards), "train/sigma": self.sigma, "iteration_count": self.iteration_count})
+                wandb.log({"train/sigma": self.sigma, "iteration_count": self.iteration_count}, step=self.iteration_count)
 
             if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
                 mode_z = self.mu
@@ -531,13 +532,13 @@ class XNESTrainer(OptunaFlowTrainer):
                 new_genome.special_metadata["flow_candidate"] = mode_weights.detach().cpu().clone()
                 
                 prompts = self.dataset.get_test_set()
+                val_start_time = time.time()
                 self.backend.generate_outputs([new_genome], None, self.dataset.suffix, prompts)
                 self.dataset.score_all([new_genome])
-                latest_val_score = new_genome.historical_rewards[-1]
+                val_end_time = time.time()
                 
-                if self.wandb_project:
-                    wandb.log({"val/validation_score": latest_val_score, "iteration_count": self.iteration_count})
-                print(f"#-- Mode Validation Stats: reward: {latest_val_score:.4f} --#")
+                latest_val_score = new_genome.historical_rewards[-1]
+                self.log_val_stats(new_genome, val_end_time - val_start_time)
                 
                 optuna_trial.report(latest_val_score, self.iteration_count)
                 if self.iteration_count >= self.start_prune_min_reward_iter and latest_val_score < self.min_val_reward:
