@@ -1,3 +1,4 @@
+# flow_trainer.py
 import json
 import math
 import os
@@ -32,7 +33,7 @@ class FlowES(nn.Module):
             layers.append(nn.Linear(hidden_dim, hidden_dim))
             layers.append(nn.Tanh())
             
-        layers.append(nn.Linear(hidden_dim, dim - self.split_dim)) # Only output s, not t
+        layers.append(nn.Linear(hidden_dim, dim - self.split_dim))
         self.net = nn.Sequential(*layers)
         
         nn.init.zeros_(self.net[-1].weight)
@@ -42,7 +43,8 @@ class FlowES(nn.Module):
         e1 = epsilon[:, :self.split_dim]
         e2 = epsilon[:, self.split_dim:]
         
-        s = self.net(e1)
+        # QUADRATIC PARITY FIX: Square the inputs to make the Jacobian EVEN
+        s = self.net(e1 ** 2)
         s = torch.clamp(s, min=-2.0, max=2.0)
         
         z1 = e1
@@ -59,7 +61,7 @@ class FlowES(nn.Module):
     def get_mode(self):
         with torch.no_grad():
             z1 = torch.zeros(1, self.split_dim, device=self.mu.device)
-            s = self.net(z1)
+            s = self.net(z1 ** 2)
             s = torch.clamp(s, min=-2.0, max=2.0)
             log_sigma = torch.clamp(self.log_sigma, min=np.log(0.001), max=np.log(0.2))
             
@@ -74,16 +76,18 @@ class FlowES(nn.Module):
         z1 = z[:, :self.split_dim]
         z2 = z[:, self.split_dim:]
         
-        s = self.net(z1)
+        # QUADRATIC PARITY FIX
+        s = self.net(z1 ** 2)
         s = torch.clamp(s, min=-2.0, max=2.0)
         
         e1 = z1
         e2 = z2 * torch.exp(-s)
         epsilon = torch.cat([e1, e2], dim=-1)
         
-        log_det_inv = -s.sum(dim=-1) / self.dim - log_sigma.mean()
+        # SCALING FIX: Use sum, not mean. No division by dim.
+        log_det_inv = -s.sum(dim=-1) - log_sigma.sum()
         pi_tensor = torch.tensor(np.pi, device=x.device)
-        base_log_prob = -0.5 * (epsilon ** 2 + torch.log(2 * pi_tensor)).mean(dim=-1)
+        base_log_prob = -0.5 * (epsilon ** 2 + torch.log(2 * pi_tensor)).sum(dim=-1)
         
         return base_log_prob + log_det_inv
 
@@ -93,6 +97,7 @@ class OptunaFlowTrainer:
                  mu_lr: float = 0.1,
                  adam_beta1: float = 0.9, adam_beta2: float = 0.999,
                  flow_hidden_layers: int = 2, flow_hidden_dim: int = 16,
+                 latent_dim: int = 64,
                  ppo_mode: bool = False, ppo_epochs: int = 4, ppo_minibatches: int = 4, 
                  clip_eps: float = 0.2, grad_clip: float = 0.5,
                  wandb_project: str = None, wandb_project_name: str = None, 
@@ -104,7 +109,6 @@ class OptunaFlowTrainer:
         backend.startup(self.config)
 
         print("#-- Initializing FlowTrainer [OptunaFlowTrainer] --#")
-        print(f"#-- Population Size: {self.config.population_size}, Flow LR: {flow_lr}, Alpha Entropy: {alpha_entropy}, PPO Mode: {ppo_mode} --#")
         
         self.backend = backend
         self.dataset = dataset
@@ -118,27 +122,41 @@ class OptunaFlowTrainer:
         self.flow_hidden_layers = flow_hidden_layers
         self.flow_hidden_dim = flow_hidden_dim
         
+        self.latent_dim = latent_dim
         self.ppo_mode = ppo_mode
         self.ppo_epochs = ppo_epochs
         self.ppo_minibatches = ppo_minibatches
         self.clip_eps = clip_eps
         self.grad_clip = grad_clip
         
-        # FIXED: Pass the perturb target to get the correct dimension
         self.dim_params = self.backend.get_total_lora_params(self.backend.lora_perturb_target)
-        print(f"#-- Target LoRA Parameters Dimension: {self.dim_params} --#")
         
-        self.flow_model = FlowES(self.dim_params, hidden_layers=self.flow_hidden_layers, hidden_dim=self.flow_hidden_dim, target_sigma=self.target_sigma)
+        if self.latent_dim > 0:
+            print(f"#-- Using Low-Rank Latent Bottleneck of size {self.latent_dim} --#")
+            self.dim_flow = self.latent_dim
+            self.P = torch.randn(self.dim_params, self.dim_flow) / math.sqrt(self.dim_flow)
+        else:
+            print("#-- Using standard full-dimension flow (NO PROJECTION) --#")
+            self.dim_flow = self.dim_params
+            self.P = None
+        
+        self.flow_model = FlowES(self.dim_flow, hidden_layers=self.flow_hidden_layers, hidden_dim=self.flow_hidden_dim, target_sigma=self.target_sigma)
         device = "cpu"
         self.flow_model.to(device)
         
         self.flow_params = [p for n, p in self.flow_model.named_parameters() if n != 'mu']
         self.flow_optimizer = optim.Adam(self.flow_params, lr=flow_lr, betas=(adam_beta1, adam_beta2))
         
-        # Target log prob computed PER DIMENSION to match the mean scaling
-        self.target_log_prob = -0.5 * (1.0 + np.log(2 * np.pi)) - np.log(self.target_sigma)
+        per_dim_target = -0.5 * (1.0 + np.log(2 * np.pi)) - np.log(self.target_sigma)
+        self.target_log_prob = per_dim_target * self.dim_flow
         
-        self.genomes = [Genome() for _ in range(self.config.population_size)]
+        # CORRECT POPULATION SIZING: config.population_size is the number of DIRECTIONS
+        self.num_directions = self.config.population_size
+        self.total_pop = self.num_directions * 2 if self.config.mirror else self.num_directions
+        if self.config.centered_eval:
+            self.total_pop += 1
+            
+        self.genomes = [Genome() for _ in range(self.total_pop)]
         self.iteration_count = 0
         self.wandb_project = wandb_project
         self.validate_every = validate_every
@@ -152,34 +170,24 @@ class OptunaFlowTrainer:
             try:
                 wandb.login()
                 config_dict = {
-                    "population_size": self.config.population_size,
-                    "flow_lr": flow_lr,
-                    "mu_lr": mu_lr,
-                    "adam_beta1": adam_beta1,
-                    "adam_beta2": adam_beta2,
-                    "flow_hidden_layers": flow_hidden_layers,
-                    "flow_hidden_dim": flow_hidden_dim,
-                    "alpha_entropy": alpha_entropy,
-                    "target_sigma": target_sigma,
-                    "ppo_mode": ppo_mode,
-                    "ppo_epochs": ppo_epochs,
-                    "ppo_minibatches": ppo_minibatches,
-                    "clip_eps": clip_eps,
-                    "grad_clip": grad_clip,
-                    "dim_params": self.dim_params,
-                    "batch_size": dataset.batch_size,
-                    "dataset_train_len": len(dataset.pairs_train),
-                    "dataset_val_len": len(dataset.pairs_test),
-                    "backend": backend.backend_name,
+                    "population_size": self.config.population_size, "total_pop": self.total_pop,
+                    "flow_lr": flow_lr, "mu_lr": mu_lr,
+                    "adam_beta1": adam_beta1, "adam_beta2": adam_beta2,
+                    "flow_hidden_layers": flow_hidden_layers, "flow_hidden_dim": flow_hidden_dim,
+                    "alpha_entropy": alpha_entropy, "target_sigma": target_sigma,
+                    "ppo_mode": ppo_mode, "ppo_epochs": ppo_epochs, "ppo_minibatches": ppo_minibatches,
+                    "clip_eps": clip_eps, "grad_clip": grad_clip,
+                    "dim_params": self.dim_params, "latent_dim": self.latent_dim,
+                    "batch_size": dataset.batch_size, "dataset_train_len": len(dataset.pairs_train),
+                    "dataset_val_len": len(dataset.pairs_test), "backend": backend.backend_name,
                     "lora_perturb_target": backend.lora_perturb_target,
                 }
                 wandb.init(project=self.wandb_project, config=config_dict, name=wandb_project_name)
                 wandb.define_metric("iteration_count")
                 wandb.define_metric("train/*", step_metric="iteration_count")
                 wandb.define_metric("val/*", step_metric="iteration_count")
-                print(f"#-- WandB logging initialized for project: {self.wandb_project} --#")
             except Exception as e:
-                print(f"#-- WandB logging initialization failed: {e} --#")
+                print(f"#-- WandB logging failed: {e} --#")
                 self.wandb_project = None
 
     def train(self, optuna_trial):
@@ -188,116 +196,117 @@ class OptunaFlowTrainer:
             self.iteration_count += 1
             start_time = time.time()
 
-            # 1. Generate Candidates
-            # FIXED: Restored antithetic noise to BOTH branches
-            noise = torch.randn(self.config.population_size // 2, self.dim_params, device=self.flow_model.mu.device)
-            epsilon = torch.cat([noise, -noise], dim=0)
-            if self.config.population_size % 2 != 0:
-                epsilon = torch.cat([epsilon, torch.randn(1, self.dim_params, device=self.flow_model.mu.device)], dim=0)
+            # 1. Generate Antithetic Candidates in Latent Space
+            noise = torch.randn(self.num_directions, self.dim_flow, device=self.flow_model.mu.device)
+            if self.config.mirror:
+                epsilon = torch.cat([noise, -noise], dim=0)
+            else:
+                epsilon = noise
+                
+            if self.config.centered_eval:
+                epsilon = torch.cat([epsilon, torch.zeros(1, self.dim_flow, device=self.flow_model.mu.device)], dim=0)
             
             with torch.no_grad():
-                candidate_weights = self.flow_model.generate_candidates_from_noise(epsilon)
+                candidate_z = self.flow_model.generate_candidates_from_noise(epsilon)
+                if self.P is not None:
+                    candidate_weights = candidate_z @ self.P.T
+                else:
+                    candidate_weights = candidate_z
+                
                 if self.ppo_mode:
-                    old_log_probs = self.flow_model.log_prob(candidate_weights)
+                    old_log_probs = self.flow_model.log_prob(candidate_z)
 
             for i, genome in enumerate(self.genomes):
                 genome.special_metadata["flow_candidate"] = candidate_weights[i].detach().cpu().clone()
             
             # 2. Evaluate Candidates
-            has_odd = self.config.population_size % 2 != 0
             inputs = self.dataset.next(
-                population_size=self.config.population_size // 2, 
-                mirror=True, 
-                center=has_odd
+                population_size=self.num_directions, 
+                mirror=self.config.mirror, 
+                center=self.config.centered_eval
             )
             self.backend.generate_outputs(self.genomes, None, self.dataset.suffix, inputs)
             self.dataset.score_all(self.genomes)
             
             end_time = time.time()
-            print(f"#-- Iteration {self.iteration_count} completed in {end_time - start_time:.2f} seconds --#")
             
             rewards = np.array([g.historical_rewards[-1] for g in self.genomes])
             reward_mean = np.mean(rewards)
             reward_std = np.std(rewards)
             self.log_train_stats(self.genomes, end_time - start_time, reward_mean, reward_std)
             
-            # 3. Gradient Update
-            norm_rewards = (rewards - reward_mean) / (reward_std + 1e-8)
-            norm_rewards_t = torch.FloatTensor(norm_rewards).to(self.flow_model.mu.device)
+            # 3. Explicit Antithetic Advantage Decomposition
+            r1 = rewards[:self.num_directions]
+            if self.config.mirror:
+                r2 = rewards[self.num_directions:2*self.num_directions]
+                adv_mu = (r1 - r2) / 2.0
+                adv_sigma = ((r1 + r2) / 2.0 - reward_mean)
+            else:
+                adv_mu = r1 - reward_mean
+                adv_sigma = r1 - reward_mean
+                
+            adv_mu = (adv_mu - adv_mu.mean()) / (adv_mu.std() + 1e-8)
+            adv_sigma = (adv_sigma - adv_sigma.mean()) / (adv_sigma.std() + 1e-8)
+            
+            adv_mu_t = torch.FloatTensor(adv_mu).to(self.flow_model.mu.device)
+            adv_sigma_t = torch.FloatTensor(adv_sigma).to(self.flow_model.mu.device)
+            
+            # 4. Gradient Update (Flow Network)
+            batch_size = self.total_pop
+            advantages_full = adv_sigma_t
+            if self.config.mirror:
+                advantages_full = torch.cat([adv_sigma_t, adv_sigma_t], dim=0)
+            if self.config.centered_eval:
+                advantages_full = torch.cat([advantages_full, torch.zeros(1, device=adv_sigma_t.device)], dim=0)
             
             if self.ppo_mode:
-                batch_size = self.config.population_size
                 minibatch_size = max(1, batch_size // self.ppo_minibatches)
-                
-                total_loss_tracker = 0
-                total_ppo_loss = 0
-                total_ent_loss = 0
-                total_log_prob_tracker = 0  # FIXED: Track log prob across all minibatches
+                total_loss_tracker, total_ppo_loss, total_ent_loss, total_log_prob_tracker = 0, 0, 0, 0
                 
                 for epoch in range(self.ppo_epochs):
-                    # Keep antithetic pairs perfectly together in minibatches to ensure gradients cancel
-                    half_pop = batch_size // 2
-                    perm_half = torch.randperm(half_pop, device=self.flow_model.mu.device)
-                    mb_half_size = max(1, half_pop // self.ppo_minibatches)
-                    
+                    perm = torch.randperm(batch_size, device=self.flow_model.mu.device)
                     for m in range(self.ppo_minibatches):
-                        start_idx = m * mb_half_size
-                        end_idx = (m + 1) * mb_half_size if m < self.ppo_minibatches - 1 else half_pop
-                        
-                        idx_half = perm_half[start_idx:end_idx]
-                        idx = torch.cat([idx_half, idx_half + half_pop])
-                        
-                        # Add the dangling odd candidate to the last minibatch if it exists
-                        if m == self.ppo_minibatches - 1 and batch_size % 2 != 0:
-                            idx = torch.cat([idx, torch.tensor([batch_size - 1], device=self.flow_model.mu.device)])
-                            
+                        start_idx = m * minibatch_size
+                        end_idx = (m + 1) * minibatch_size if m < self.ppo_minibatches - 1 else batch_size
+                        idx = perm[start_idx:end_idx]
                         if len(idx) == 0: continue
                         
-                        mb_targets = candidate_weights[idx].detach()
-                        mb_advantages = norm_rewards_t[idx]
+                        mb_targets = candidate_z[idx].detach()
+                        mb_advantages = advantages_full[idx]
                         mb_old_log_probs = old_log_probs[idx].detach()
                         
                         new_log_probs = self.flow_model.log_prob(mb_targets)
-                        
                         log_ratio = new_log_probs - mb_old_log_probs
                         ratio = torch.exp(torch.clamp(log_ratio, min=-10.0, max=10.0))
                         
                         surr1 = ratio * mb_advantages
                         surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * mb_advantages
-                        ppo_loss = -torch.min(surr1, surr2).mean() * self.dim_params
+                        ppo_loss = -torch.min(surr1, surr2).mean()
                         
-                        entropy_loss = self.alpha_entropy * (new_log_probs.mean() - self.target_log_prob).pow(2) * self.dim_params
-                        
+                        entropy_loss = self.alpha_entropy * (new_log_probs.mean() - self.target_log_prob).pow(2)
                         loss = ppo_loss + entropy_loss
                         
                         self.flow_optimizer.zero_grad()
                         loss.backward()
-                        
-                        # Only clip Flow network params, let mu update freely via its own SGD scale
                         torch.nn.utils.clip_grad_norm_(self.flow_params, self.grad_clip)
-                        
                         self.flow_optimizer.step()
                         
-                        total_loss_tracker += loss.item() / self.dim_params
-                        total_ppo_loss += ppo_loss.item() / self.dim_params
-                        total_ent_loss += entropy_loss.item() / self.dim_params
+                        total_loss_tracker += loss.item()
+                        total_ppo_loss += ppo_loss.item()
+                        total_ent_loss += entropy_loss.item()
                         total_log_prob_tracker += new_log_probs.mean().item()
                         
                 if self.wandb_project:
                     updates = self.ppo_epochs * self.ppo_minibatches
                     wandb.log({
-                        "train/rl_loss": total_ppo_loss / updates,
-                        "train/entropy_loss": total_ent_loss / updates,
-                        "train/total_loss": total_loss_tracker / updates,
-                        "train/mean_log_prob": total_log_prob_tracker / updates  # FIXED
+                        "train/rl_loss": total_ppo_loss / updates, "train/entropy_loss": total_ent_loss / updates,
+                        "train/total_loss": total_loss_tracker / updates, "train/mean_log_prob": total_log_prob_tracker / updates
                     }, step=self.iteration_count)
             else:
-                fixed_targets = candidate_weights.detach()
-                log_probs = self.flow_model.log_prob(fixed_targets)
+                log_probs = self.flow_model.log_prob(candidate_z.detach())
                 
-                rl_loss = -(log_probs * norm_rewards_t).mean() * self.dim_params
-                entropy_loss = self.alpha_entropy * (log_probs.mean() - self.target_log_prob).pow(2) * self.dim_params
-                
+                rl_loss = -(log_probs * advantages_full).mean()
+                entropy_loss = self.alpha_entropy * (log_probs.mean() - self.target_log_prob).pow(2)
                 loss = rl_loss + entropy_loss
                 
                 self.flow_optimizer.zero_grad()
@@ -307,22 +316,24 @@ class OptunaFlowTrainer:
                 
                 if self.wandb_project:
                     wandb.log({
-                        "train/rl_loss": rl_loss.item() / self.dim_params,
-                        "train/entropy_loss": entropy_loss.item() / self.dim_params,
-                        "train/total_loss": loss.item() / self.dim_params,
-                        "train/mean_log_prob": log_probs.mean().item()
+                        "train/rl_loss": rl_loss.item(), "train/entropy_loss": entropy_loss.item(),
+                        "train/total_loss": loss.item(), "train/mean_log_prob": log_probs.mean().item()
                     }, step=self.iteration_count)
             
-            # --- SAFE MU UPDATE (Standard ES) ---
+            # 5. SAFE MU UPDATE (NATURAL GRADIENT: Uses actual shaped perturbation)
             with torch.no_grad():
-                # Use the actual direction explored in the parameter space (candidate - mu)
-                actual_noise = (candidate_weights - self.flow_model.mu) / self.target_sigma
-                mu_grad = (norm_rewards_t.unsqueeze(1) * actual_noise).mean(dim=0) * self.target_sigma
+                delta_x = candidate_z - self.flow_model.mu
+                mu_grad = (adv_mu_t.unsqueeze(1) * delta_x[:self.num_directions]).mean(dim=0)
                 self.flow_model.mu += self.mu_lr * mu_grad
 
-            # 4. Validation
+            # 6. Validation
             if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
-                mode_weights = self.flow_model.get_mode()
+                mode_z = self.flow_model.get_mode()
+                if self.P is not None:
+                    mode_weights = mode_z @ self.P.T
+                else:
+                    mode_weights = mode_z
+                    
                 new_genome = Genome()
                 new_genome.special_metadata["flow_candidate"] = mode_weights.detach().cpu().clone()
                 
@@ -336,25 +347,18 @@ class OptunaFlowTrainer:
                 self.log_val_stats(new_genome, val_end_time - val_start_time)
                 
                 optuna_trial.report(latest_val_score, self.iteration_count)
-                
-                if self.iteration_count >= self.start_prune_min_reward_iter:
-                    if latest_val_score < self.min_val_reward:
-                        print(f"Run failed early garbage check at step {self.iteration_count}. Killing it.")
-                        raise optuna.TrialPruned()
-                
+                if self.iteration_count >= self.start_prune_min_reward_iter and latest_val_score < self.min_val_reward:
+                    raise optuna.TrialPruned()
                 if optuna_trial.should_prune():
-                    print(f"Run failed to pass Optuna's pruning check at step {self.iteration_count}.")
                     raise optuna.TrialPruned()
 
-            # 5. Checkpoint
             if self.checkpoint_every > 0 and self.iteration_count % self.checkpoint_every == 0:
                 base, ext = os.path.splitext(self.checkpoint_path)
                 path = f"{base}_step_{self.iteration_count}{ext}"
                 os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
                 torch.save(self.flow_model.state_dict(), path)
-                print(f"#-- Successfully saved flow model to {path} --#")
                 
-            self.genomes = [Genome() for _ in range(self.config.population_size)]
+            self.genomes = [Genome() for _ in range(self.total_pop)]
 
         return latest_val_score
 
@@ -362,48 +366,185 @@ class OptunaFlowTrainer:
         average_response_length = sum([sum(len(response.split()) for response in genome.latest_outputs) for genome in genomes]) / len(genomes) / max(1, len(genomes[0].latest_outputs))
         best_genome = max(genomes, key=lambda g: g.historical_rewards[-1])
         worst_genome = min(genomes, key=lambda g: g.historical_rewards[-1])
-        
-        if self.wandb_project is not None and self.wandb_project != "":
+        if self.wandb_project:
             try:
                 sample_table = wandb.Table(columns=["type", "reward", "response"])
                 sample_table.add_data("best", best_genome.historical_rewards[-1], best_genome.latest_outputs[0])
                 sample_table.add_data("worst", worst_genome.historical_rewards[-1], worst_genome.latest_outputs[0])
-                
-                log_data = {
-                    f"train/average_reward": reward_mean,
-                    f"train/min_reward": worst_genome.historical_rewards[-1],
-                    f"train/max_reward": best_genome.historical_rewards[-1],
-                    f"train/stddev_reward": reward_std,
-                    f"train/time_seconds": time_taken,
-                    f"train/average_response_length": average_response_length,
-                    f"train/samples": sample_table,
-                    f"iteration_count": self.iteration_count
-                }
-                wandb.log(log_data, step=self.iteration_count)
-            except Exception:
-                pass
-                
+                wandb.log({
+                    f"train/average_reward": reward_mean, f"train/min_reward": worst_genome.historical_rewards[-1],
+                    f"train/max_reward": best_genome.historical_rewards[-1], f"train/stddev_reward": reward_std,
+                    f"train/time_seconds": time_taken, f"train/average_response_length": average_response_length,
+                    f"train/samples": sample_table, f"iteration_count": self.iteration_count
+                }, step=self.iteration_count)
+            except Exception: pass
         print(f"#-- Stats: average: {reward_mean:.4f}, min: {worst_genome.historical_rewards[-1]:.4f}, max: {best_genome.historical_rewards[-1]:.4f}, stddev: {reward_std:.4f} --#")
-        if self.print_samples:
-            print(f"#-- BEST GENOME --#\n{best_genome.latest_outputs[0]}\n")
-            print(f"#-- WORST GENOME --#\n{worst_genome.latest_outputs[0]}\n") 
 
     def log_val_stats(self, genome: Genome, time_taken: float):
         score = genome.historical_rewards[-1]
-        average_response_length = sum(len(response.split()) for response in genome.latest_outputs) / max(1, len(genome.latest_outputs))
-        
-        if self.wandb_project is not None and self.wandb_project != "":
+        if self.wandb_project:
             try:
                 wandb.log({
-                    f"val/validation_score": score,
-                    f"val/time_seconds": time_taken,
-                    f"val/average_response_length": average_response_length,
+                    f"val/validation_score": score, f"val/time_seconds": time_taken,
                     f"val/sample_response": wandb.Table(data=[[genome.latest_outputs[0]]], columns=["response"]),
                     f"iteration_count": self.iteration_count
                 }, step=self.iteration_count)
-            except Exception:
-                pass
-                
+            except Exception: pass
         print(f"#-- Mode Validation Stats: reward: {score:.4f}, time: {time_taken:.2f}s --#")
-        if self.print_samples:
-            print(f"#-- MODE GENOME RESPONSE --#\n{genome.latest_outputs[0]}\n")
+
+
+# =====================================================================
+# XNES TRAINER (Analytical Covariance Learning in Latent Space)
+# =====================================================================
+class XNESTrainer(OptunaFlowTrainer):
+    def __init__(self, config, backend, dataset, 
+                 mu_lr=0.1, sigma_lr=0.1, cov_lr=0.1, target_sigma=0.1, latent_dim=64,
+                 wandb_project=None, wandb_project_name=None, validate_every=0, 
+                 print_samples=False, min_val_reward=0.25, start_prune_min_reward_iter=10):
+        
+        self.config = config
+        backend.startup(self.config)
+        self.backend = backend
+        self.dataset = dataset
+        self.mu_lr = mu_lr
+        self.sigma_lr = sigma_lr
+        self.cov_lr = cov_lr
+        self.target_sigma = target_sigma
+        self.latent_dim = latent_dim
+        self.wandb_project = wandb_project
+        self.validate_every = validate_every
+        self.print_samples = print_samples
+        self.min_val_reward = min_val_reward
+        self.start_prune_min_reward_iter = start_prune_min_reward_iter
+        
+        self.dim_params = self.backend.get_total_lora_params(self.backend.lora_perturb_target)
+        self.dim_flow = self.latent_dim
+        self.P = torch.randn(self.dim_params, self.dim_flow) / math.sqrt(self.dim_flow)
+        
+        self.mu = torch.zeros(self.dim_flow)
+        self.sigma = self.target_sigma
+        self.cov = torch.eye(self.dim_flow)
+        self.L = torch.linalg.cholesky(self.cov)
+        
+        # CORRECT POPULATION SIZING
+        self.num_directions = self.config.population_size
+        self.total_pop = self.num_directions * 2 if self.config.mirror else self.num_directions
+        if self.config.centered_eval:
+            self.total_pop += 1
+            
+        self.genomes = [Genome() for _ in range(self.total_pop)]
+        self.iteration_count = 0
+        
+        if self.wandb_project:
+            try:
+                wandb.init(project=self.wandb_project, config={"algo": "xNES", "latent_dim": self.latent_dim}, name=wandb_project_name)
+                wandb.define_metric("iteration_count")
+                wandb.define_metric("train/*", step_metric="iteration_count")
+                wandb.define_metric("val/*", step_metric="iteration_count")
+            except: 
+                self.wandb_project = None
+
+    def train(self, optuna_trial):
+        latest_val_score = 0.0
+        while self.iteration_count < self.config.total_steps:
+            self.iteration_count += 1
+            start_time = time.time()
+
+            noise = torch.randn(self.num_directions, self.dim_flow)
+            if self.config.mirror:
+                epsilon = torch.cat([noise, -noise], dim=0)
+            else:
+                epsilon = noise
+                
+            if self.config.centered_eval:
+                epsilon = torch.cat([epsilon, torch.zeros(1, self.dim_flow)], dim=0)
+            
+            z = self.mu + self.sigma * (epsilon @ self.L.T)
+            candidate_weights = z @ self.P.T
+            for i, genome in enumerate(self.genomes):
+                genome.special_metadata["flow_candidate"] = candidate_weights[i].detach().cpu().clone()
+            
+            inputs = self.dataset.next(
+                population_size=self.num_directions, 
+                mirror=self.config.mirror, 
+                center=self.config.centered_eval
+            )
+            self.backend.generate_outputs(self.genomes, None, self.dataset.suffix, inputs)
+            self.dataset.score_all(self.genomes)
+            
+            rewards = np.array([g.historical_rewards[-1] for g in self.genomes])
+            r1 = rewards[:self.num_directions]
+            if self.config.mirror:
+                r2 = rewards[self.num_directions:2*self.num_directions]
+                adv_mu = (r1 - r2) / 2.0
+                adv_sigma = ((r1 + r2) / 2.0 - np.mean(rewards))
+            else:
+                adv_mu = r1 - np.mean(rewards)
+                adv_sigma = r1 - np.mean(rewards)
+                
+            adv_mu = (adv_mu - adv_mu.mean()) / (adv_mu.std() + 1e-8)
+            adv_sigma = (adv_sigma - adv_sigma.mean()) / (adv_sigma.std() + 1e-8)
+            
+            adv_mu_t = torch.FloatTensor(adv_mu)
+            adv_sigma_t = torch.FloatTensor(adv_sigma)
+            
+            with torch.no_grad():
+                # Mu Update (NATURAL GRADIENT: Apply Cholesky L)
+                mu_grad = (adv_mu_t.unsqueeze(1) * epsilon[:self.num_directions]).mean(dim=0)
+                self.mu += self.mu_lr * self.sigma * (self.L @ mu_grad)
+                
+                # Sigma Update (FACTOR OF 0.5)
+                norms = (epsilon[:self.num_directions] ** 2).sum(dim=-1) / self.dim_flow - 1.0
+                sigma_grad = 0.5 * (adv_sigma_t * norms).mean()
+                self.sigma *= torch.exp(self.sigma_lr * sigma_grad)
+                self.sigma = torch.clamp(self.sigma, min=1e-4, max=0.5)
+                
+                # Covariance Update (FACTOR OF 0.5)
+                cov_grad = torch.zeros_like(self.cov)
+                for i in range(self.num_directions):
+                    eps_i = epsilon[:self.num_directions][i]
+                    cov_grad += 0.5 * adv_sigma_t[i] * (torch.outer(eps_i, eps_i) - torch.eye(self.dim_flow))
+                cov_grad /= self.num_directions
+                
+                self.cov = self.cov @ (torch.eye(self.dim_flow) + self.cov_lr * cov_grad)
+                self.cov = (self.cov + self.cov.T) / 2.0
+                
+                # Cholesky Fallback (EIGENVALUE CLIPPING)
+                try:
+                    self.L = torch.linalg.cholesky(self.cov + 1e-6 * torch.eye(self.dim_flow))
+                except:
+                    print("#-- Cholesky failed, symmetrizing and clipping eigenvalues --#")
+                    eigvals, eigvecs = torch.linalg.eigh((self.cov + self.cov.T) / 2.0)
+                    eigvals = torch.clamp(eigvals, min=1e-4)
+                    self.cov = eigvecs @ torch.diag(eigvals) @ eigvecs.T
+                    self.L = torch.linalg.cholesky(self.cov)
+
+            end_time = time.time()
+            print(f"#-- Iteration {self.iteration_count} (xNES) completed in {end_time - start_time:.2f}s | Reward: {np.mean(rewards):.4f} --#")
+            if self.wandb_project:
+                wandb.log({"train/average_reward": np.mean(rewards), "train/sigma": self.sigma, "iteration_count": self.iteration_count})
+
+            if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
+                mode_z = self.mu
+                mode_weights = mode_z @ self.P.T
+                new_genome = Genome()
+                new_genome.special_metadata["flow_candidate"] = mode_weights.detach().cpu().clone()
+                
+                prompts = self.dataset.get_test_set()
+                self.backend.generate_outputs([new_genome], None, self.dataset.suffix, prompts)
+                self.dataset.score_all([new_genome])
+                latest_val_score = new_genome.historical_rewards[-1]
+                
+                if self.wandb_project:
+                    wandb.log({"val/validation_score": latest_val_score, "iteration_count": self.iteration_count})
+                print(f"#-- Mode Validation Stats: reward: {latest_val_score:.4f} --#")
+                
+                optuna_trial.report(latest_val_score, self.iteration_count)
+                if self.iteration_count >= self.start_prune_min_reward_iter and latest_val_score < self.min_val_reward:
+                    raise optuna.TrialPruned()
+                if optuna_trial.should_prune():
+                    raise optuna.TrialPruned()
+
+            self.genomes = [Genome() for _ in range(self.total_pop)]
+
+        return latest_val_score
