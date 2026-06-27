@@ -1,4 +1,4 @@
-# flow_ppo_entrypoint.py
+# flow_rwr_entrypoint.py
 import argparse
 import optuna
 from optuna.storages import JournalStorage, JournalFileStorage, JournalFileOpenLock
@@ -46,16 +46,14 @@ def worker_process(journal_path, study_name):
             flow_hidden_layers = trial.suggest_int("flow_hidden_layers", 1, 4)
             flow_hidden_dim = trial.suggest_int("flow_hidden_dim", 4, 16, step=2)
             
-            # Retained latent_dim = -1 for comprehensiveness as requested
-            latent_dim = trial.suggest_categorical("latent_dim", [-1, 16, 32, 64, 128, 256])
+            num_subspaces = trial.suggest_categorical("num_subspaces", [1, 18, 36, 72, 252])
+            subspace_k = trial.suggest_categorical("subspace_k", [1, 4, 8, 16])
+            latent_dim = num_subspaces * subspace_k
             
-            ppo_epochs = trial.suggest_int("ppo_epochs", 2, 8)
-            ppo_minibatches = trial.suggest_categorical("ppo_minibatches", [1, 2, 4])
-            clip_eps = trial.suggest_float("clip_eps", 0.1, 0.4)
-            grad_clip = trial.suggest_float("grad_clip", 0.1, 1.0)
+            rwr_tau = trial.suggest_float("rwr_tau", 0.5, 2.0)
             
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
-            run_name = f"flow_ppo_t{trial.number}_ld{latent_dim}_lr{flow_lr:.1e}"
+            run_name = f"flow_rwr_t{trial.number}_ld{latent_dim}_ns{num_subspaces}_tau{rwr_tau:.1e}"
             
             backend = VLLMFlowBackendLoRA(
                 model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, 
@@ -76,9 +74,9 @@ def worker_process(journal_path, study_name):
                 flow_lr=flow_lr, alpha_entropy=alpha_entropy, target_sigma=target_sigma,
                 mu_lr=mu_lr, adam_beta1=adam_beta1, adam_beta2=adam_beta2,
                 flow_hidden_layers=flow_hidden_layers, flow_hidden_dim=flow_hidden_dim,
-                latent_dim=latent_dim, ppo_mode=True, ppo_epochs=ppo_epochs,
-                ppo_minibatches=ppo_minibatches, clip_eps=clip_eps, grad_clip=grad_clip,
-                wandb_project="propagate_flow_ppo_sweeps", wandb_project_name=run_name,
+                latent_dim=latent_dim, num_subspaces=num_subspaces,
+                rwr_mode=True, rwr_tau=rwr_tau,
+                wandb_project="propagate_flow_rwr_sweeps", wandb_project_name=run_name,
                 validate_every=10, print_samples=False, min_val_reward=0.25, start_prune_min_reward_iter=10
             )
             try:
@@ -98,10 +96,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=5)
     args = parser.parse_args()
-    JOURNAL_PATH = "sweep_flow_ppo.journal"
-    STUDY_NAME = "study_flow_ppo"
+    JOURNAL_PATH = "sweep_flow_rwr.journal"
+    STUDY_NAME = "study_flow_rwr"
     study = get_or_create_study(STUDY_NAME, JOURNAL_PATH)
-    print(f"\n#--- Starting FlowES PPO Sweep ({args.trials} trials) ---#")
+    print(f"\n#--- Starting FlowES RWR Sweep ({args.trials} trials) ---#")
     ctx = mp.get_context('spawn')
     for i in range(args.trials):
         print(f"\n--- Initiating Trial {i+1}/{args.trials} ---")

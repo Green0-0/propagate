@@ -46,11 +46,12 @@ def worker_process(journal_path, study_name):
             flow_hidden_layers = trial.suggest_int("flow_hidden_layers", 1, 4)
             flow_hidden_dim = trial.suggest_int("flow_hidden_dim", 4, 16, step=2)
             
-            # Retained latent_dim = -1 for comprehensiveness as requested
-            latent_dim = trial.suggest_categorical("latent_dim", [-1, 16, 32, 64, 128, 256])
+            num_subspaces = trial.suggest_categorical("num_subspaces", [1, 18, 36, 72, 252])
+            subspace_k = trial.suggest_categorical("subspace_k", [1, 4, 8, 16])
+            latent_dim = num_subspaces * subspace_k
             
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
-            run_name = f"flow_reinforce_t{trial.number}_ld{latent_dim}_lr{flow_lr:.1e}"
+            run_name = f"flow_reinforce_t{trial.number}_ld{latent_dim}_ns{num_subspaces}_lr{flow_lr:.1e}"
             
             backend = VLLMFlowBackendLoRA(
                 model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, 
@@ -71,7 +72,8 @@ def worker_process(journal_path, study_name):
                 flow_lr=flow_lr, alpha_entropy=alpha_entropy, target_sigma=target_sigma,
                 mu_lr=mu_lr, adam_beta1=adam_beta1, adam_beta2=adam_beta2,
                 flow_hidden_layers=flow_hidden_layers, flow_hidden_dim=flow_hidden_dim,
-                latent_dim=latent_dim, ppo_mode=False,
+                latent_dim=latent_dim, num_subspaces=num_subspaces,
+                rwr_mode=False,
                 wandb_project="propagate_flow_reinforce_sweeps", wandb_project_name=run_name,
                 validate_every=10, print_samples=False, min_val_reward=0.25, start_prune_min_reward_iter=10
             )

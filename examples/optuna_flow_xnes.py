@@ -39,10 +39,13 @@ def worker_process(journal_path, study_name):
             mu_lr = trial.suggest_float("mu_lr", 0.01, 6.0)
             sigma_lr = trial.suggest_float("sigma_lr", 0.01, 1.0)
             cov_lr = trial.suggest_float("cov_lr", 0.01, 1.0)
-            latent_dim = trial.suggest_categorical("latent_dim", [16, 32, 64, 128, 256])
+            
+            num_subspaces = trial.suggest_categorical("num_subspaces", [1, 18, 36, 72, 252])
+            subspace_k = trial.suggest_categorical("subspace_k", [1, 4, 8, 16])
+            latent_dim = num_subspaces * subspace_k
             
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
-            run_name = f"xnes_t{trial.number}_ld{latent_dim}_mu{mu_lr:.1e}"
+            run_name = f"xnes_t{trial.number}_ld{latent_dim}_ns{num_subspaces}_mu{mu_lr:.1e}"
             
             backend = VLLMFlowBackendLoRA(
                 model_name="Qwen/Qwen2.5-3B-Instruct", NUM_GPUS=4, CPUS_PER_GPU=6, 
@@ -61,7 +64,7 @@ def worker_process(journal_path, study_name):
             trainer = XNESTrainer(
                 config=config, backend=backend, dataset=dataset,
                 mu_lr=mu_lr, sigma_lr=sigma_lr, cov_lr=cov_lr,
-                target_sigma=target_sigma, latent_dim=latent_dim,
+                target_sigma=target_sigma, latent_dim=latent_dim, num_subspaces=num_subspaces,
                 wandb_project="propagate_xnes_sweeps", wandb_project_name=run_name,
                 validate_every=10, print_samples=False, min_val_reward=0.25, start_prune_min_reward_iter=10
             )
