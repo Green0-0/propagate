@@ -514,12 +514,13 @@ class XNESTrainer(OptunaFlowTrainer):
                 
                 # Update Cholesky (FIXED: Eigenvalue clipping fallback)
                 try:
-                    self.L = torch.linalg.cholesky(self.cov + 1e-6 * torch.eye(self.dim_flow))
+                    self.L = torch.linalg.cholesky(self.cov + 1e-6 * torch.eye(self.dim_flow, device=self.cov.device))
                 except:
                     print("#-- Cholesky failed, clipping eigenvalues --#")
                     eigvals, eigvecs = torch.linalg.eigh((self.cov + self.cov.T) / 2.0)
                     eigvals = torch.clamp(eigvals, min=1e-4)
                     self.cov = eigvecs @ torch.diag(eigvals) @ eigvecs.T
+                    self.cov = (self.cov + self.cov.T) / 2.0 + 1e-5 * torch.eye(self.dim_flow, device=self.cov.device)
                     self.L = torch.linalg.cholesky(self.cov)
 
             end_time = time.time()
