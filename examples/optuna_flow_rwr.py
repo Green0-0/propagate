@@ -12,7 +12,7 @@ def get_or_create_study(study_name, journal_path, direction="maximize"):
     if directory: os.makedirs(directory, exist_ok=True)
     lock = JournalFileOpenLock(f"{journal_path}.lock")
     storage = JournalStorage(JournalFileStorage(journal_path, lock_obj=lock))
-    sampler = optuna.samplers.TPESampler(n_startup_trials=30, multivariate=True, constant_liar=True)
+    sampler = optuna.samplers.TPESampler(n_startup_trials=10, multivariate=True, constant_liar=True)
     pruner = optuna.pruners.HyperbandPruner(min_resource=30, max_resource=200, reduction_factor=2)
     return optuna.create_study(study_name=study_name, storage=storage, load_if_exists=True, direction=direction, sampler=sampler, pruner=pruner)
 
