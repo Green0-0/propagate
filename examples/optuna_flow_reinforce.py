@@ -35,9 +35,14 @@ def worker_process(journal_path, study_name):
         def objective(trial):
             flow_lr = trial.suggest_float("flow_lr", 1e-4, 5e-2, log=True)
             alpha_entropy = trial.suggest_float("alpha_entropy", 1e-4, 0.5, log=True)
-            target_sigma = trial.suggest_float("target_sigma", 0.001, 0.1, log=True)
+            
+            normalize_svd = trial.suggest_categorical("normalize_svd", [True, False])
+            if normalize_svd:
+                target_sigma = trial.suggest_float("target_sigma_norm", 0.5, 5.0)
+            else:
+                target_sigma = trial.suggest_float("target_sigma_unnorm", 0.005, 0.05)
 
-            mu_lr = trial.suggest_float("mu_lr", 0.01, 6.0)
+            mu_lr = trial.suggest_float("mu_lr", 0.5, 10.0)
             adam_beta1 = trial.suggest_float("adam_beta1", 0.1, 0.99)
             adam_beta2 = trial.suggest_float("adam_beta2", 0.8, 0.999)
 
@@ -48,7 +53,6 @@ def worker_process(journal_path, study_name):
             u_dim = trial.suggest_categorical("u_dim", [1, 2, 4, 8, 16, 32])
             n_tie = trial.suggest_categorical("n_tie", [1, 7, 36, 252])
             use_rslora = False
-            normalize_svd = trial.suggest_categorical("normalize_svd", [True, False])
 
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
             run_name = f"flow_reinforce_t{trial.number}_lr{lora_rank}_u{u_dim}_nt{n_tie}"

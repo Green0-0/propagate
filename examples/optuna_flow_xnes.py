@@ -33,9 +33,13 @@ def worker_process(journal_path, study_name):
         study = get_or_create_study(study_name, journal_path)
 
         def objective(trial):
-            target_sigma = trial.suggest_float("target_sigma", 0.001, 0.1, log=True)
+            normalize_svd = trial.suggest_categorical("normalize_svd", [True, False])
+            if normalize_svd:
+                target_sigma = trial.suggest_float("target_sigma_norm", 0.5, 5.0, log=True)
+            else:
+                target_sigma = trial.suggest_float("target_sigma_unnorm", 0.005, 0.05, log=True)
 
-            mu_lr = trial.suggest_float("mu_lr", 0.01, 6.0)
+            mu_lr = trial.suggest_float("mu_lr", 0.5, 10.0)
             sigma_lr = trial.suggest_float("sigma_lr", 0.01, 1.0)
             cov_lr = trial.suggest_float("cov_lr", 0.01, 1.0)
 
@@ -43,7 +47,6 @@ def worker_process(journal_path, study_name):
             u_dim = trial.suggest_categorical("u_dim", [1, 2, 4, 8, 16, 32])
             n_tie = trial.suggest_categorical("n_tie", [1, 7, 36, 252])
             use_rslora = False
-            normalize_svd = trial.suggest_categorical("normalize_svd", [True, False])
 
             sampler = SamplingParams(temperature=0.00, seed=42, max_tokens=1024)
             run_name = f"xnes_t{trial.number}_lr{lora_rank}_u{u_dim}_nt{n_tie}_mu{mu_lr:.1e}"

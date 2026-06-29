@@ -272,7 +272,11 @@ class OptunaFlowTrainer:
                     "train/scale_loss": scale_loss.item(),
                     "train/total_loss": loss.item(),
                     "train/mean_log_prob": log_probs.mean().item(),
-                    "train/empirical_std": torch.std(candidate_v, dim=0).mean().item()
+                    "train/empirical_std": torch.std(candidate_v, dim=0).mean().item(),
+                    "train/mu_norm": self.flow_model.mu.norm().item(),
+                    "train/mu_grad_norm": mu_grad.norm().item(),
+                    "train/log_sigma_mean": self.flow_model.log_sigma.mean().item(),
+                    "train/log_sigma_std": self.flow_model.log_sigma.std().item() if self.flow_model.log_sigma.numel() > 1 else 0.0
                 }, step=self.iteration_count)
 
             # --- Mu Update (Natural Gradient style: multiplying by sigma) ---
@@ -425,6 +429,7 @@ class XNESTrainer:
                     "algo": "sep-xNES", "lora_rank": lora_rank, "u_dim": u_dim, "n_tie": n_tie,
                     "num_modules": self.num_modules, "num_groups": self.num_groups, "dim_flow": self.dim_flow,
                     "use_rslora": backend.use_rslora, "normalize_svd": backend.normalize_svd,
+                    "mu_lr": mu_lr, "sigma_lr": sigma_lr, "cov_lr": cov_lr, "target_sigma": target_sigma,
                 }, name=wandb_project_name)
                 wandb.define_metric("iteration_count")
                 wandb.define_metric("train/*", step_metric="iteration_count")
@@ -511,7 +516,13 @@ class XNESTrainer:
                 wandb.log({
                     "train/sigma": self.sigma.item(),
                     "train/D_mean": self.D.mean().item(),
-                    "train/D_std": self.D.std().item(),
+                    "train/D_std": self.D.std().item() if self.D.numel() > 1 else 0.0,
+                    "train/D_max": self.D.max().item(),
+                    "train/D_min": self.D.min().item(),
+                    "train/mu_norm": self.mu.norm().item(),
+                    "train/mu_grad_norm": mu_grad.norm().item(),
+                    "train/sigma_grad": sigma_grad.item(),
+                    "train/d_grad_norm": d_grad.norm().item(),
                     "iteration_count": self.iteration_count
                 }, step=self.iteration_count)
 
