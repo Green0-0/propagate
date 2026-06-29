@@ -27,9 +27,10 @@ class VLLMFlowBackendLoRA(VLLMBackendLoRA):
 
     def compute_tinylora_svd(self, lora_rank: int):
         print(f"#-- Computing TinyLoRA SVD (lora_rank={lora_rank}, normalize_svd={self.normalize_svd}) --#")
-        svd_info = ray.get(
+        svd_info_list = ray.get(
             self.inference_engines[0].collective_rpc.remote(
                 "compute_tinylora_svd", args=(lora_rank, self.normalize_svd)))
+        svd_info = svd_info_list[0] if isinstance(svd_info_list, list) else svd_info_list
         print(f"#-- SVD computed for {len(svd_info)} modules on worker 0 --#")
 
         if len(self.inference_engines) > 1:
