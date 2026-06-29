@@ -18,7 +18,12 @@ MODULE_ORDER = {
 def tinylora_sort_key(name: str):
     m = re.search(r"layers\.(\d+)\.", name)
     layer_idx = int(m.group(1)) if m else 10**9
-    suffix = name.split(".")[-1]
+    if name.endswith("qkv_proj#sub0"): suffix = "q_proj"
+    elif name.endswith("qkv_proj#sub1"): suffix = "k_proj"
+    elif name.endswith("qkv_proj#sub2"): suffix = "v_proj"
+    elif name.endswith("gate_up_proj#sub0"): suffix = "gate_proj"
+    elif name.endswith("gate_up_proj#sub1"): suffix = "up_proj"
+    else: suffix = name.split(".")[-1]
     return layer_idx, MODULE_ORDER.get(suffix, 99), name
 
 class FlowWorkerExtension(BaseWorkerExtension):
@@ -65,12 +70,23 @@ class FlowWorkerExtension(BaseWorkerExtension):
                     clean_name = clean_name[len(prefix):]
                     break
             parent_name = '.'.join(clean_name.split('.')[:-1])
-            suffix = clean_name.split('.')[-1]
+            
+            if clean_name.endswith("qkv_proj#sub0"): suffix = "q_proj"
+            elif clean_name.endswith("qkv_proj#sub1"): suffix = "k_proj"
+            elif clean_name.endswith("qkv_proj#sub2"): suffix = "v_proj"
+            elif clean_name.endswith("gate_up_proj#sub0"): suffix = "gate_proj"
+            elif clean_name.endswith("gate_up_proj#sub1"): suffix = "up_proj"
+            else: suffix = clean_name.split('.')[-1]
+
             if suffix in ['q_proj', 'k_proj', 'v_proj', 'gate_proj', 'up_proj']:
-                if lora_a.shape[0] == lora_rank and lora_b.shape[1] == lora_rank:
-                    d_out = lora_b.shape[0]
-                elif lora_a.shape[1] == lora_rank and lora_b.shape[0] == lora_rank:
-                    d_out = lora_a.shape[0]
+                a_shape = lora_a.shape
+                b_shape = lora_b.shape
+                if len(a_shape) < 2 or len(b_shape) < 2:
+                    continue
+                if a_shape[-2] == b_shape[-1] and a_shape[-2] <= min(a_shape[-1], b_shape[-2]):
+                    d_out = b_shape[-2]
+                elif a_shape[-1] == b_shape[-2] and a_shape[-1] <= min(a_shape[-2], b_shape[-1]):
+                    d_out = b_shape[-1]
                 else:
                     continue
                 if parent_name not in module_dims:
@@ -130,7 +146,13 @@ class FlowWorkerExtension(BaseWorkerExtension):
                     base_weight = target_module.weight.data
 
             if base_weight is None:
-                base_suffix = clean_name.split('.')[-1]
+                if clean_name.endswith("qkv_proj#sub0"): base_suffix = "q_proj"
+                elif clean_name.endswith("qkv_proj#sub1"): base_suffix = "k_proj"
+                elif clean_name.endswith("qkv_proj#sub2"): base_suffix = "v_proj"
+                elif clean_name.endswith("gate_up_proj#sub0"): base_suffix = "gate_proj"
+                elif clean_name.endswith("gate_up_proj#sub1"): base_suffix = "up_proj"
+                else: base_suffix = clean_name.split('.')[-1]
+
                 parent_name = '.'.join(clean_name.split('.')[:-1])
                 merged_name = None
                 order = []
@@ -140,16 +162,31 @@ class FlowWorkerExtension(BaseWorkerExtension):
                 elif base_suffix in ['gate_proj', 'up_proj']:
                     merged_name = parent_name + '.gate_up_proj'
                     order = ['gate_proj', 'up_proj']
-                if merged_name and merged_name in named_modules:
-                    merged_mod = named_modules[merged_name]
-                    W_merged = merged_mod.weight.data
-                    offset = 0
-                    for s in order:
-                        if s == base_suffix:
-                            break
-                        offset += module_dims.get(parent_name, {}).get(s, 0)
-                    chunk = d_out
-                    base_weight = W_merged[offset : offset + chunk, :]
+                merged_mod = None
+                if merged_name:
+                    if merged_name in named_modules:
+                        merged_mod = named_modules[merged_name]
+                    else:
+                        for name, mod in named_modules.items():
+                            if name.endswith('.' + merged_name) or name == merged_name:
+                                merged_mod = mod
+                                break
+
+                if merged_mod is not None:
+                    W_merged = None
+                    if hasattr(merged_mod, 'base_layer') and hasattr(merged_mod.base_layer, 'weight'):
+                        W_merged = merged_mod.base_layer.weight.data
+                    elif hasattr(merged_mod, 'weight'):
+                        W_merged = merged_mod.weight.data
+                        
+                    if W_merged is not None:
+                        offset = 0
+                        for s in order:
+                            if s == base_suffix:
+                                break
+                            offset += module_dims.get(parent_name, {}).get(s, 0)
+                        chunk = d_out
+                        base_weight = W_merged[offset : offset + chunk, :]
 
             if base_weight is None:
                 raise RuntimeError(f"Could not find base weight for {layer_name}")
