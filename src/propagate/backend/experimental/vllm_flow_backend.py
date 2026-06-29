@@ -33,8 +33,9 @@ class VLLMFlowBackendLoRA(VLLMBackendLoRA):
         print(f"#-- SVD computed for {len(svd_info)} modules on worker 0 --#")
 
         if len(self.inference_engines) > 1:
-            svd_data = ray.get(
+            svd_data_list = ray.get(
                 self.inference_engines[0].collective_rpc.remote("get_tinylora_svd_data"))
+            svd_data = svd_data_list[0] if isinstance(svd_data_list, list) else svd_data_list
             ray.get([
                 llm.collective_rpc.remote("set_tinylora_svd_data", args=(svd_data,))
                 for llm in self.inference_engines[1:]

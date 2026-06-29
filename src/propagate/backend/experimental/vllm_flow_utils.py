@@ -223,6 +223,7 @@ class FlowWorkerExtension(BaseWorkerExtension):
         return svd_info
 
     def get_tinylora_svd_data(self):
+        print(f"  [Worker {self.rank if hasattr(self, 'rank') else '?'}] get_tinylora_svd_data called. Packaging {len(self.tinylora_layer_names)} modules.")
         return {
             "names": self.tinylora_layer_names,
             "U": self.tinylora_U,
@@ -234,6 +235,10 @@ class FlowWorkerExtension(BaseWorkerExtension):
         }
 
     def set_tinylora_svd_data(self, data):
+        print(f"  [Worker {self.rank if hasattr(self, 'rank') else '?'}] set_tinylora_svd_data called. Unpacking {len(data.get('names', []))} modules.")
+        if isinstance(data, list):
+            print("  [Worker Warning] set_tinylora_svd_data received a list. Extracting first element.")
+            data = data[0]
         self.tinylora_layer_names = data["names"]
         self.tinylora_U = data["U"]
         self.tinylora_S = data["S"]
@@ -242,6 +247,7 @@ class FlowWorkerExtension(BaseWorkerExtension):
         self.tinylora_normalize_svd = data["normalize_svd"]
         self.tinylora_lora_rank = data["lora_rank"]
         self._gpu_cache = None
+        print(f"  [Worker {self.rank if hasattr(self, 'rank') else '?'}] set_tinylora_svd_data successfully configured {len(self.tinylora_layer_names)} modules.")
 
     @torch.inference_mode()
     def init_tinylora(self, u_dim: int, n_tie: int, lora_rank: int):
