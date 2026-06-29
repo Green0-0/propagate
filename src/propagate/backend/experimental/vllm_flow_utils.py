@@ -89,17 +89,22 @@ class FlowWorkerExtension(BaseWorkerExtension):
 
         # Natural sort to ensure contiguous chunks correspond to logical transformer blocks
         for layer_name, (lora_a, lora_b) in sorted(lora_weights.items(), key=lambda kv: tinylora_sort_key(kv[0])):
-            if lora_a.shape[0] == lora_rank and lora_b.shape[1] == lora_rank:
-                d_in = lora_a.shape[1]
-                d_out = lora_b.shape[0]
+            a_shape = lora_a.shape
+            b_shape = lora_b.shape
+            if len(a_shape) < 2 or len(b_shape) < 2:
+                raise RuntimeError(f"LoRA tensors for {layer_name} have < 2 dimensions: {a_shape}, {b_shape}")
+                
+            if a_shape[-2] == b_shape[-1] and a_shape[-2] <= min(a_shape[-1], b_shape[-2]):
+                d_in = a_shape[-1]
+                d_out = b_shape[-2]
                 orientation = "peft"
-            elif lora_a.shape[1] == lora_rank and lora_b.shape[0] == lora_rank:
-                d_in = lora_b.shape[1]
-                d_out = lora_a.shape[0]
+            elif a_shape[-1] == b_shape[-2] and a_shape[-1] <= min(a_shape[-2], b_shape[-1]):
+                d_in = a_shape[-2]
+                d_out = b_shape[-1]
                 orientation = "vllm_swapped"
             else:
                 raise RuntimeError(f"Cannot infer LoRA orientation for {layer_name}. "
-                                   f"lora_a shape: {lora_a.shape}, lora_b shape: {lora_b.shape}, "
+                                   f"lora_a shape: {a_shape}, lora_b shape: {b_shape}, "
                                    f"expected lora_rank: {lora_rank}")
 
             base_weight = None
@@ -312,11 +317,18 @@ class FlowWorkerExtension(BaseWorkerExtension):
                         B_cand = U_sigma @ R
                         A_cand = V.T
                     else:
-                        A_cand = U_sigma @ R
-                        B_cand = V.T
+                        A_cand = V
+                        B_cand = (U_sigma @ R).T
 
-                    lora_a.copy_(A_cand.to(lora_a.dtype))
-                    lora_b.copy_(B_cand.to(lora_b.dtype))
+                    lora_a.zero_()
+                    lora_b.zero_()
+
+                    if orientation == "peft":
+                        lora_a[..., :self.tinylora_lora_rank, :] = A_cand.to(lora_a.dtype)
+                        lora_b[..., :, :self.tinylora_lora_rank] = B_cand.to(lora_b.dtype)
+                    else:
+                        lora_a[..., :, :self.tinylora_lora_rank] = A_cand.to(lora_a.dtype)
+                        lora_b[..., :self.tinylora_lora_rank, :] = B_cand.to(lora_b.dtype)
 
         if torch.cuda.is_available():
             torch.cuda.synchronize()
