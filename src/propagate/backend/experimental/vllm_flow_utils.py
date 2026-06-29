@@ -98,7 +98,9 @@ class FlowWorkerExtension(BaseWorkerExtension):
                 d_out = lora_a.shape[0]
                 orientation = "vllm_swapped"
             else:
-                raise RuntimeError(f"Cannot infer LoRA orientation for {layer_name}")
+                raise RuntimeError(f"Cannot infer LoRA orientation for {layer_name}. "
+                                   f"lora_a shape: {lora_a.shape}, lora_b shape: {lora_b.shape}, "
+                                   f"expected lora_rank: {lora_rank}")
 
             base_weight = None
             clean_name = layer_name
