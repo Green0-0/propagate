@@ -265,6 +265,11 @@ class OptunaFlowTrainer:
             torch.nn.utils.clip_grad_norm_(self.flow_params, 0.5)
             self.flow_optimizer.step()
 
+            # --- Mu Update (Natural Gradient style: multiplying by sigma) ---
+            with torch.no_grad():
+                mu_grad = (adv_mu_t.unsqueeze(1) * delta_plus[:self.num_directions]).mean(dim=0)
+                self.flow_model.mu += self.mu_lr * mu_grad
+
             if self.wandb_project:
                 wandb.log({
                     "iteration_count": self.iteration_count,
@@ -278,14 +283,6 @@ class OptunaFlowTrainer:
                     "train/log_sigma_mean": self.flow_model.log_sigma.mean().item(),
                     "train/log_sigma_std": self.flow_model.log_sigma.std().item() if self.flow_model.log_sigma.numel() > 1 else 0.0
                 }, step=self.iteration_count)
-
-            # --- Mu Update (Natural Gradient style: multiplying by sigma) ---
-            with torch.no_grad():
-                # By using delta_plus (which is z * sigma), we inherently multiply the gradient
-                # by sigma. This matches the natural gradient rule and prevents parameter 
-                # explosion as the variance shrinks, aligning with xNES and your old code.
-                mu_grad = (adv_mu_t.unsqueeze(1) * delta_plus[:self.num_directions]).mean(dim=0)
-                self.flow_model.mu += self.mu_lr * mu_grad
 
             # --- Validation ---
             if self.validate_every > 0 and self.iteration_count % self.validate_every == 0:
