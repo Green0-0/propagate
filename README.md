@@ -7,8 +7,6 @@
   <h2>Train thinking models using evolutionary strategies!</h2>
 </div>
 
-# THIS REPO IS UNDERGOING SIGNFICANT REWRITES TO THE OPTIMIZER AND MAY NOT WORK RIGHT NOW.
-
 ### 🏃 Quick Start:
 1. Clone this repo: ``git clone https://github.com/Green0-0/propagate``
 
@@ -28,3 +26,5 @@
 - https://openai.com/index/evolution-strategies/
 - https://github.com/VsonicV/es-fine-tuning-paper
 - https://github.com/ESHyperscale/HyperscaleES
+
+*Warning: This repo is currently undergoing experiments for a new version of the algorithm. Some things may not be stable.*
